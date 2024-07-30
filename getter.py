@@ -4,6 +4,7 @@ import bs4
 from bs4 import BeautifulSoup
 import sys
 import json
+import math
 
 ELEMS_PER_PAGE: int = 100
 
@@ -42,7 +43,7 @@ def download_all_subjects ():
 
     codes_with_names: list[tuple[str, str]] = []
 
-    for i in range (int(num_subjects/ELEMS_PER_PAGE)):
+    for i in range (math.ceil(num_subjects/ELEMS_PER_PAGE)):
         r = get_subjects_response (i*ELEMS_PER_PAGE, ELEMS_PER_PAGE)
         soup = BeautifulSoup (r.content, 'html.parser')
 
