@@ -5,8 +5,18 @@ from bs4 import BeautifulSoup
 import bs4
 import random
 from getpass import getpass
+import sys
 
 NUM_PLANS = 3
+
+def read_words_from_file (filename: str) -> list[str]:
+    try:
+        with open (filename, 'r') as f:
+            whole_str: str = f.read()
+            words: list[str] = re.findall(r'\S+', whole_str)
+            return words
+    except FileNotFoundError:
+        return []
 
 #   logs to usos and returns cookies with php session
 def log_in_to_usos (username, password):
@@ -73,37 +83,9 @@ def duplicate_plan (plan: int, num: int, name: str, cookies) -> list[int]:
 
     return new_plan_ids
 
-current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
-print ('starting run:', current_hash)
-
-dydactic_cycle = '2024Z'
-dydactic_cycle = '2024Z'
-with open ('codes', 'r') as f:
-    codes_file = f.read()
-    subjects = re.findall(r'\S+', codes_file)
-
-username = input('username:')
-password = getpass()
-
-php_session_cookies = log_in_to_usos (username, password)
-
-print ('logged in to usos')
-
-new_plan_name = 'automatic_template_' + current_hash
-plan_id: int = create_plan (new_plan_name, dydactic_cycle, subjects, php_session_cookies)
-
-print ('created plan')
-
-plan_instence_ids: list[int] = duplicate_plan (plan_id, NUM_PLANS, 'automatic_instance_' + current_hash + '__', php_session_cookies)
-
 ODD_DAYS = 1
 EVEN_DAYS = 2
 ALL_DAYS = ODD_DAYS | EVEN_DAYS
-
-plan_page = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/pokaz', 'plan_id': plan_id, 'plan_division': 'semester'}, cookies=php_session_cookies)
-
-print ('downloaded plan')
-whole_plan_soup = BeautifulSoup (plan_page.content, 'html.parser')
 
 def transform_time (hours: str, minutes: str):
     hours_i = int(hours)
@@ -139,17 +121,6 @@ def get_entry_data (entry: bs4.element.Tag):
 
     data = {'type': name_match.group(1), 'group': name_match.group(2), 'day': day_of_the_week.group(1), 'parity': parity, 'subject': entry['name-id'], 'time_from': transform_time (time_match.group(1), time_match.group(2)), 'time_to': transform_time (time_match.group(3), time_match.group(4))}
     return data
-
-entries = whole_plan_soup.find_all ('timetable-entry')
-
-all_data = [get_entry_data(i) for i in entries]
-
-all_groups = list(set([(data['subject'], data['type']) for data in all_data]))
-
-group_to_options = {group: [] for group in all_groups}
-for data in all_data:
-    group_to_options[(data['subject'], data['type'])].append(data)
-
 
 class hour_entry:
     day: str
@@ -195,59 +166,6 @@ def do_groups_collide (l: group_entry, r: group_entry) -> bool:
                 return True
     return False
 
-all_total_entries: list[list[group_entry]] = []
-
-for i in group_to_options:
-
-    current_entry: list[group_entry] = []
-    #current_entry.subject = i[0]
-    #current_entry.entry_type = i[1]
-
-    current_groups: dict [str, group_entry] = {}
-    x: dict[str, typing.Any]
-    for x in group_to_options[i]:
-        if x['group'] not in current_groups:
-            current_groups[x['group']] = group_entry()
-            current_groups[x['group']].groups = [x['group']]
-            current_groups[x['group']].subject = i[0]
-            current_groups[x['group']].entry_type = i[1]
-        current_hour = hour_entry()
-        current_hour.day = x['day']
-        current_hour.parity = x['parity']
-        current_hour.time_from = x['time_from']
-        current_hour.time_to = x['time_to']
-
-        current_groups[x['group']].hours.add (current_hour)
-
-    for group in current_groups.values():
-        was_already: bool = False
-        if (len(current_entry) > 0):
-            for previous_group in current_entry:
-                if (group.hours == previous_group.hours):
-                    was_already = True
-                    previous_group.groups.extend(group.groups)
-
-        if (not was_already):
-            current_entry.append (group)
-
-    all_total_entries.append (current_entry)
-
-current_plans: list[list[group_entry]]  = [[]]
-for entry in all_total_entries:
-    # entry is a subject (list of group entries)
-    new_plans: list[list[group_entry]]  = []
-    for old_plan in current_plans:
-        for new_group in entry:
-            can_be_added: bool = True
-            for old_group in old_plan:
-                if (do_groups_collide (old_group, new_group)):
-                    can_be_added = False
-                    break
-            if (can_be_added):
-                new_plans.append (old_plan.copy())
-                new_plans[-1].append (new_group)
-    current_plans = new_plans
-
 def evaluate_plan (plan: list[group_entry]) -> int:
     map_days_to_hours: dict[tuple[str, int], list[hour_entry]] = {}
     for entry in plan:
@@ -285,10 +203,6 @@ def evaluate_plan (plan: list[group_entry]) -> int:
         if (l[1] - l[0] > 9):
             res += 30
     return res
-
-plans_with_values = [(plan, evaluate_plan(plan)) for plan in current_plans]
-
-plans_with_values.sort (key=(lambda x: x[1]))
 
 #   takes a dictionary from subject code to list of its groups
 def shatter_plan (plan_id: int, groups: dict[tuple[str, str], group_entry], cookies):
@@ -337,6 +251,114 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], group_entry], cook
         payload, boundary = create_form_str (form_dict)
         requests.post ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id}, data=payload, headers={'Content-Type': 'multipart/form-data; boundary=' + boundary}, cookies=cookies)
 
+#   takes plan id and returns and returns a list which contains a list of groups for every subject
+def get_groups_from_plan (plan: int, cookies) -> list[list[group_entry]]:
+    plan_page = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/pokaz', 'plan_id': plan, 'plan_division': 'semester'}, cookies=cookies)
+
+    print ('downloaded plan')
+    whole_plan_soup = BeautifulSoup (plan_page.content, 'html.parser')
+
+    entries = whole_plan_soup.find_all ('timetable-entry')
+
+    all_data = [get_entry_data(i) for i in entries]
+
+    all_groups = list(set([(data['subject'], data['type']) for data in all_data]))
+
+    group_to_options = {group: [] for group in all_groups}
+    for data in all_data:
+        group_to_options[(data['subject'], data['type'])].append(data)
+
+
+    all_total_entries: list[list[group_entry]] = []
+
+    for i in group_to_options:
+
+        current_entry: list[group_entry] = []
+        #current_entry.subject = i[0]
+        #current_entry.entry_type = i[1]
+
+        current_groups: dict [str, group_entry] = {}
+        x: dict[str, typing.Any]
+        for x in group_to_options[i]:
+            if x['group'] not in current_groups:
+                current_groups[x['group']] = group_entry()
+                current_groups[x['group']].groups = [x['group']]
+                current_groups[x['group']].subject = i[0]
+                current_groups[x['group']].entry_type = i[1]
+            current_hour = hour_entry()
+            current_hour.day = x['day']
+            current_hour.parity = x['parity']
+            current_hour.time_from = x['time_from']
+            current_hour.time_to = x['time_to']
+
+            current_groups[x['group']].hours.add (current_hour)
+
+        for group in current_groups.values():
+            was_already: bool = False
+            if (len(current_entry) > 0):
+                for previous_group in current_entry:
+                    if (group.hours == previous_group.hours):
+                        was_already = True
+                        previous_group.groups.extend(group.groups)
+
+            if (not was_already):
+                current_entry.append (group)
+
+        all_total_entries.append (current_entry)
+    return all_total_entries
+
+def list_possible_plans (all_total_entries: list[list[group_entry]]):
+
+    current_plans: list[list[group_entry]]  = [[]]
+    for entry in all_total_entries:
+        # entry is a subject (list of group entries)
+        new_plans: list[list[group_entry]]  = []
+        for old_plan in current_plans:
+            for new_group in entry:
+                can_be_added: bool = True
+                for old_group in old_plan:
+                    if (do_groups_collide (old_group, new_group)):
+                        can_be_added = False
+                        break
+                if (can_be_added):
+                    new_plans.append (old_plan.copy())
+                    new_plans[-1].append (new_group)
+        current_plans = new_plans
+    return current_plans
+
+#-------------------------------------
+
+words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
+if (len(words_in_cycle_file) != 1):
+    print ('failed to read dydactic cycle')
+    sys.exit (1)
+dydactic_cycle: str = words_in_cycle_file[0]
+
+current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
+print ('starting run:', current_hash)
+
+username = input('username:')
+password = getpass()
+
+php_session_cookies = log_in_to_usos (username, password)
+
+subjects = read_words_from_file ('config/M/codes')
+
+print ('logged in to usos')
+
+new_plan_name = 'automatic_template_' + current_hash
+plan_id: int = create_plan (new_plan_name, dydactic_cycle, subjects, php_session_cookies)
+
+print ('created plan')
+
+plan_instence_ids: list[int] = duplicate_plan (plan_id, NUM_PLANS, 'automatic_instance_' + current_hash + '__', php_session_cookies)
+
+all_total_entries = get_groups_from_plan (plan_id, php_session_cookies)
+
+possible_plans = list_possible_plans (all_total_entries)
+plans_with_values = [(plan, evaluate_plan(plan)) for plan in possible_plans]
+
+plans_with_values.sort (key=(lambda x: x[1]))
 
 for i in range (min(NUM_PLANS, len(plans_with_values))):
 
