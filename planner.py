@@ -6,6 +6,7 @@ import bs4
 import random
 from getpass import getpass
 import sys
+import pathlib
 
 NUM_PLANS = 3
 
@@ -35,6 +36,7 @@ def log_in_to_usos (username, password):
     cookies.update(r2.cookies)
 
     r3 = requests.get ('https://logowanie.uw.edu.pl/cas/login', params={'service': 'https://usosweb.mimuw.edu.pl/kontroler.php?_action=news/default', 'gateway': 'true'}, cookies=cookies)
+    print ('logged in to usos')
 
     return r3.cookies
 
@@ -45,6 +47,7 @@ def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -
     plan_id = re.findall (r'plan_id=(\d*)', create_request.url)[0]
     for subject in subjects:
         requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/dodajWpis', 'plan_id': plan_id, 'klasa': 'P', 'prz_kod': subject, 'cdyd_kod': dydactic_cycle}, cookies=cookies)
+    print ('created plan:', name)
     return plan_id
 
 #   creates multiform post payload and returns it and the boundary
@@ -326,6 +329,21 @@ def list_possible_plans (all_total_entries: list[list[group_entry]]):
         current_plans = new_plans
     return current_plans
 
+class planner_unit:
+    def __init__ (self):
+        self.name: str = 'unnamed'
+        self.evaluator: str = 'time'
+        # all attended lessons
+        self.lessons: set[str] = set()
+        # all groups of attended lessons
+        self.groups: list[list[group_entry]] = []
+
+        self.template_plan_id: int = -1
+
+    def __str__ (self):
+        return 'name: ' + self.name + ' evaluator: ' + self.evaluator
+
+
 #-------------------------------------
 
 words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
@@ -336,38 +354,53 @@ dydactic_cycle: str = words_in_cycle_file[0]
 
 current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
 print ('starting run:', current_hash)
-
 username = input('username:')
 password = getpass()
-
 php_session_cookies = log_in_to_usos (username, password)
 
-subjects = read_words_from_file ('config/M/codes')
 
-print ('logged in to usos')
+all_planner_units: list[planner_unit] = []
 
-new_plan_name = 'automatic_template_' + current_hash
-plan_id: int = create_plan (new_plan_name, dydactic_cycle, subjects, php_session_cookies)
+directory: pathlib.Path = pathlib.Path ('./config')
+for directory in directory.iterdir():
+    if not directory.is_dir():
+        continue
+    current_unit: planner_unit = planner_unit ()
+    current_unit.name = directory.name
+    subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
 
-print ('created plan')
+    current_unit.lessons = set(subjects)
 
-plan_instence_ids: list[int] = duplicate_plan (plan_id, NUM_PLANS, 'automatic_instance_' + current_hash + '__', php_session_cookies)
+    evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
+    if (len(evaluator_list) == 1):
+        current_unit.evaluator = evaluator_list[0]
 
-all_total_entries = get_groups_from_plan (plan_id, php_session_cookies)
+    template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash 
 
-possible_plans = list_possible_plans (all_total_entries)
-plans_with_values = [(plan, evaluate_plan(plan)) for plan in possible_plans]
+    plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
+    current_unit.template_plan_id = plan_id
+    current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
 
-plans_with_values.sort (key=(lambda x: x[1]))
+    print (current_unit)
+    all_planner_units.append (current_unit)
 
-for i in range (min(NUM_PLANS, len(plans_with_values))):
+for current_unit in all_planner_units:
 
-    plan: list[group_entry] = plans_with_values[i][0]
+    plan_instence_ids: list[int] = duplicate_plan (current_unit.template_plan_id, NUM_PLANS, 'automatic_instance_' + current_unit.name + '_' + current_hash + '__', php_session_cookies)
 
-    map_subjects_to_groups: dict[tuple[str, str], group_entry] = {}
-    for group in plan:
-        map_subjects_to_groups[(group.subject, group.entry_type)] = group
+    possible_plans = list_possible_plans (current_unit.groups)
+    plans_with_values = [(plan, evaluate_plan(plan)) for plan in possible_plans]
 
-    shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
+    plans_with_values.sort (key=(lambda x: x[1]))
 
-    print ('shattered plan')
+    for i in range (min(NUM_PLANS, len(plans_with_values))):
+
+        plan: list[group_entry] = plans_with_values[i][0]
+
+        map_subjects_to_groups: dict[tuple[str, str], group_entry] = {}
+        for group in plan:
+            map_subjects_to_groups[(group.subject, group.entry_type)] = group
+
+        shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
+
+        print ('shattered plan')
