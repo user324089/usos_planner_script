@@ -169,7 +169,7 @@ def do_groups_collide (l: group_entry, r: group_entry) -> bool:
                 return True
     return False
 
-def evaluate_plan (plan: list[group_entry]) -> int:
+def evaluate_plan_time (plan: list[group_entry]) -> int:
     map_days_to_hours: dict[tuple[str, int], list[hour_entry]] = {}
     for entry in plan:
         for hour in entry.hours:
@@ -206,6 +206,8 @@ def evaluate_plan (plan: list[group_entry]) -> int:
         if (l[1] - l[0] > 9):
             res += 30
     return res
+
+evaluators = {'time': evaluate_plan_time}
 
 #   takes a dictionary from subject code to list of its groups
 def shatter_plan (plan_id: int, groups: dict[tuple[str, str], group_entry], cookies):
@@ -372,7 +374,7 @@ for directory in directory.iterdir():
     current_unit.lessons = set(subjects)
 
     evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
-    if (len(evaluator_list) == 1):
+    if (len(evaluator_list) == 1 and evaluator_list[0] in evaluators):
         current_unit.evaluator = evaluator_list[0]
 
     template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash 
@@ -389,7 +391,7 @@ for current_unit in all_planner_units:
     plan_instence_ids: list[int] = duplicate_plan (current_unit.template_plan_id, NUM_PLANS, 'automatic_instance_' + current_unit.name + '_' + current_hash + '__', php_session_cookies)
 
     possible_plans = list_possible_plans (current_unit.groups)
-    plans_with_values = [(plan, evaluate_plan(plan)) for plan in possible_plans]
+    plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
 
     plans_with_values.sort (key=(lambda x: x[1]))
 
