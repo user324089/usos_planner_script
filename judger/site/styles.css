@@ -1,0 +1,27 @@
+.timetable_row {
+    height: 4em;
+    width: 100%;
+    border-width: 0.3em;
+    border-style: solid;
+    border-color: black;
+}
+
+td {
+    border-width: 0.3em;
+    border-color: black;
+    border-style: solid;
+}
+
+.timetable_entry {
+    display: flex;
+    flex-direction: column;
+    background-color: grey;
+    border-width: 0.1em;
+    border-style: solid;
+}
+
+#page_buttons {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}

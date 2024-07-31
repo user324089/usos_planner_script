@@ -215,5 +215,8 @@ for lesson in groups:
             entries[group.subject][group.entry_type][group_name].append (relevant_data)
 
 
-with open("data.json", 'w') as f:
-    json.dump(entries, f, indent=2) 
+json_str = json.dumps(entries, indent=2)
+
+with open("site/data.js", 'w') as f:
+    f.write ('let data=')
+    f.write (json_str)
