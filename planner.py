@@ -7,6 +7,7 @@ import random
 from getpass import getpass
 import sys
 import pathlib
+import json
 
 NUM_PLANS = 3
 
@@ -169,7 +170,7 @@ def do_groups_collide (l: group_entry, r: group_entry) -> bool:
                 return True
     return False
 
-def evaluate_plan_time (plan: list[group_entry]) -> int:
+def evaluate_plan_time (plan: list[group_entry], _: pathlib.Path) -> int:
     map_days_to_hours: dict[tuple[str, int], list[hour_entry]] = {}
     for entry in plan:
         for hour in entry.hours:
@@ -207,7 +208,24 @@ def evaluate_plan_time (plan: list[group_entry]) -> int:
             res += 30
     return res
 
-evaluators = {'time': evaluate_plan_time}
+
+custom_evaluate_data = {}
+def evaluate_plan_custom (plan: list[group_entry], path: pathlib.Path) -> int:
+    if path in custom_evaluate_data:
+        data = custom_evaluate_data[path]
+    else:
+        with open ((path / 'data.json').resolve(), 'r') as data_file:
+            data = json.load(data_file)
+            custom_evaluate_data[path] = data
+    result: int = 0
+    for group in plan:
+        values_for_groups = [int(data[group.subject][group.entry_type][single_group]) for single_group in group.groups]
+        result += max(values_for_groups)
+
+    return result
+
+
+evaluators = {'time': evaluate_plan_time, 'custom': evaluate_plan_custom}
 
 #   takes a dictionary from subject code to list of its groups
 def shatter_plan (plan_id: int, groups: dict[tuple[str, str], group_entry], cookies):
@@ -339,6 +357,7 @@ class planner_unit:
         self.lessons: set[str] = set()
         # all groups of attended lessons
         self.groups: list[list[group_entry]] = []
+        self.config_path: pathlib.Path = pathlib.Path()
 
         self.template_plan_id: int = -1
 
@@ -382,6 +401,7 @@ for directory in directory.iterdir():
     plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
     current_unit.template_plan_id = plan_id
     current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
+    current_unit.config_path = directory
 
     print (current_unit)
     all_planner_units.append (current_unit)
@@ -391,7 +411,7 @@ for current_unit in all_planner_units:
     plan_instence_ids: list[int] = duplicate_plan (current_unit.template_plan_id, NUM_PLANS, 'automatic_instance_' + current_unit.name + '_' + current_hash + '__', php_session_cookies)
 
     possible_plans = list_possible_plans (current_unit.groups)
-    plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
+    plans_with_values = [(plan, evaluators[current_unit.evaluator](plan, current_unit.config_path)) for plan in possible_plans]
 
     plans_with_values.sort (key=(lambda x: x[1]))
 
