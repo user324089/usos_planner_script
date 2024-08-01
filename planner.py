@@ -403,67 +403,68 @@ class PlannerUnit:
     def __str__ (self):
         return 'name: ' + self.name + ' evaluator: ' + self.evaluator
 
+def main():
+    words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
+    if len(words_in_cycle_file) != 1:
+        print ('failed to read dydactic cycle')
+        sys.exit (1)
+    dydactic_cycle: str = words_in_cycle_file[0]
 
-#-------------------------------------
-
-words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
-if len(words_in_cycle_file) != 1:
-    print ('failed to read dydactic cycle')
-    sys.exit (1)
-dydactic_cycle: str = words_in_cycle_file[0]
-
-current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
-print ('starting run:', current_hash)
-username = input('username:')
-password = getpass()
-php_session_cookies = log_in_to_usos (username, password)
+    current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
+    print ('starting run:', current_hash)
+    username = input('username:')
+    password = getpass()
+    php_session_cookies = log_in_to_usos (username, password)
 
 
-all_planner_units: list[PlannerUnit] = []
+    all_planner_units: list[PlannerUnit] = []
 
-directory: pathlib.Path = pathlib.Path ('./config')
-for directory in directory.iterdir():
-    if not directory.is_dir():
-        continue
-    current_unit: PlannerUnit = PlannerUnit ()
-    current_unit.name = directory.name
-    subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
+    directory: pathlib.Path = pathlib.Path ('./config')
+    for directory in directory.iterdir():
+        if not directory.is_dir():
+            continue
+        current_unit: PlannerUnit = PlannerUnit ()
+        current_unit.name = directory.name
+        subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
 
-    current_unit.lessons = set(subjects)
+        current_unit.lessons = set(subjects)
 
-    evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
-    if (len(evaluator_list) == 1 and evaluator_list[0] in evaluators):
-        current_unit.evaluator = evaluator_list[0]
+        evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
+        if (len(evaluator_list) == 1 and evaluator_list[0] in evaluators):
+            current_unit.evaluator = evaluator_list[0]
 
-    template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
+        template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
 
-    plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
-    current_unit.template_plan_id = plan_id
-    current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
+        plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
+        current_unit.template_plan_id = plan_id
+        current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
 
-    print (current_unit)
-    all_planner_units.append (current_unit)
+        print (current_unit)
+        all_planner_units.append (current_unit)
 
-for current_unit in all_planner_units:
+    for current_unit in all_planner_units:
 
-    plan_instence_ids: list[int] = (
-        duplicate_plan (current_unit.template_plan_id, NUM_PLANS,
-                        'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
-                        php_session_cookies))
+        plan_instence_ids: list[int] = (
+            duplicate_plan (current_unit.template_plan_id, NUM_PLANS,
+                            'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
+                            php_session_cookies))
 
-    possible_plans = list_possible_plans (current_unit.groups)
-    plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
+        possible_plans = list_possible_plans (current_unit.groups)
+        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
 
-    plans_with_values.sort (key=(lambda x: x[1]))
+        plans_with_values.sort (key=(lambda x: x[1]))
 
-    for i in range (min(NUM_PLANS, len(plans_with_values))):
+        for i in range (min(NUM_PLANS, len(plans_with_values))):
 
-        plan: list[GroupEntry] = plans_with_values[i][0]
+            plan: list[GroupEntry] = plans_with_values[i][0]
 
-        map_subjects_to_groups: dict[tuple[str, str], GroupEntry] = {}
-        for group in plan:
-            map_subjects_to_groups[(group.subject, group.entry_type)] = group
+            map_subjects_to_groups: dict[tuple[str, str], GroupEntry] = {}
+            for group in plan:
+                map_subjects_to_groups[(group.subject, group.entry_type)] = group
 
-        shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
+            shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
 
-        print ('shattered plan')
+            print ('shattered plan')
+
+if __name__ == '__main__':
+    main()

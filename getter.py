@@ -64,37 +64,40 @@ def download_all_subjects ():
 
     return codes_with_names
 
-
-codes_with_names: list[tuple[str, str]] = []
-try:
-    with open ('subjects.json') as subjects_file:
-        codes_with_names = json.load(subjects_file)
-except FileNotFoundError:
+def main():
+    codes_with_names: list[tuple[str, str]] = []
     try:
-        codes_with_names = download_all_subjects()
+        with open ('subjects.json') as subjects_file:
+            codes_with_names = json.load(subjects_file)
+    except FileNotFoundError:
+        try:
+            codes_with_names = download_all_subjects()
+        except KeyboardInterrupt:
+            sys.exit (1)
+
+        with open("subjects.json", 'w') as f:
+            json.dump(codes_with_names, f, indent=2)
+
+    CODE_BOX_LEN = 20
+    NAME_BOX_LEN = 100
+
+    try:
+        while True:
+            print ('please enter regular expression to search subjects:')
+            pattern: str = input()
+            for (code, name) in codes_with_names:
+                try:
+                    if re.match (pattern, name):
+                        box_len = max(NAME_BOX_LEN, len(name))
+                        print ('┌' + CODE_BOX_LEN * '─' + '┬' + box_len * '─' + '┐')
+                        print (('│{:>' + str(CODE_BOX_LEN) + '}│{:>' + str(box_len) + '}│')
+                               .format(code, name))
+                        print ('└' + CODE_BOX_LEN * '─' + '┴' + box_len * '─' + '┘')
+                except re.error:
+                    print ('error with regular expression')
+                    break
     except KeyboardInterrupt:
-        sys.exit (1)
+        sys.exit (0)
 
-    with open("subjects.json", 'w') as f:
-        json.dump(codes_with_names, f, indent=2)
-
-CODE_BOX_LEN = 20
-NAME_BOX_LEN = 100
-
-try:
-    while True:
-        print ('please enter regular expression to search subjects:')
-        pattern: str = input()
-        for (code, name) in codes_with_names:
-            try:
-                if re.match (pattern, name):
-                    box_len = max(NAME_BOX_LEN, len(name))
-                    print ('┌' + CODE_BOX_LEN * '─' + '┬' + box_len * '─' + '┐')
-                    print (('│{:>' + str(CODE_BOX_LEN) + '}│{:>' + str(box_len) + '}│')
-                           .format(code, name))
-                    print ('└' + CODE_BOX_LEN * '─' + '┴' + box_len * '─' + '┘')
-            except re.error:
-                print ('error with regular expression')
-                break
-except KeyboardInterrupt:
-    sys.exit (0)
+if __name__ == '__main__':
+    main()
