@@ -13,9 +13,7 @@ NUM_PLANS = 3
 def read_words_from_file (filename: str) -> list[str]:
     try:
         with open (filename, 'r') as f:
-            whole_str: str = f.read()
-            words: list[str] = re.findall(r'\S+', whole_str)
-            return words
+            return f.read().split()
     except FileNotFoundError:
         return []
 
@@ -88,10 +86,7 @@ def duplicate_plan (plan: int, num: int, name: str, cookies) -> list[int]:
                                        cookies=cookies, timeout=20)
     current_plan_ids: list[int] = re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
     #new_plan_ids: set[int] = current_plan_ids.difference (previous_plan_ids)
-    new_plan_ids: list[int] = []
-    for plan_id in current_plan_ids:
-        if plan_id not in previous_plan_ids:
-            new_plan_ids.append (plan_id)
+    new_plan_ids = [plan_id for plan_id in current_plan_ids if plan_id not in previous_plan_ids]
 
     for current_index, changed_plan_id in enumerate(new_plan_ids):
         change_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
@@ -196,17 +191,11 @@ class GroupEntry:
         self.hours: set[HourEntry] = set ()
 
     def __str__ (self):
-        res =  'group: ' + str(self.groups) + ' from ' + self.subject + ' ' + self.entry_type
-        for hour in self.hours:
-            res += '\n' + str(hour)
-        return res
+        res =  'group: ' + str(self.groups) + ' from ' + self.subject + ' ' + self.entry_type + '\n'
+        return res + '\n'.join(str(hour) for hour in self.hours)
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
-    for hour_l in l.hours:
-        for hour_r in r.hours:
-            if do_hours_collide (hour_l, hour_r):
-                return True
-    return False
+    return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
 
 def evaluate_plan_time (plan: list[GroupEntry]) -> int:
     map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = {}
