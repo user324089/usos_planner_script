@@ -4,6 +4,7 @@ import random
 from getpass import getpass
 import sys
 import pathlib
+from collections import defaultdict
 import requests
 from bs4 import BeautifulSoup
 import bs4
@@ -61,7 +62,7 @@ def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -
 
 #   creates multiform post payload and returns it and the boundary
 def create_form_str (options: dict[str, str]) -> tuple[str, str]:
-    boundary: str = '-' * 27 +  ''.join(random.choice('0123456789') for _ in range(20))
+    boundary: str = '-' * 27 +  ''.join(random.choices('0123456789', k=20))
     boundary_longer: str = '--' + boundary
     total: str = ''
     for opt in options:
@@ -77,15 +78,16 @@ def duplicate_plan (plan: int, num: int, name: str, cookies) -> list[int]:
                                        params={'_action': 'home/plany/index'},
                                        cookies=cookies, timeout=20)
     previous_plan_ids: set[str] = set(re.findall(r'data-plan-id="(\d*)"', list_plans_request.text))
+
     for _ in range (num):
         requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                       params={'_action': 'home/plany/skopiuj', 'plan_id': plan},
                       cookies=cookies, timeout=20)
+
     list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                        params={'_action': 'home/plany/index'},
                                        cookies=cookies, timeout=20)
     current_plan_ids: list[int] = re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
-    #new_plan_ids: set[int] = current_plan_ids.difference (previous_plan_ids)
     new_plan_ids = [plan_id for plan_id in current_plan_ids if plan_id not in previous_plan_ids]
 
     for current_index, changed_plan_id in enumerate(new_plan_ids):
@@ -198,25 +200,17 @@ def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
 
 def evaluate_plan_time (plan: list[GroupEntry]) -> int:
-    map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = {}
+    map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = defaultdict(list[HourEntry])
     for entry in plan:
         for hour in entry.hours:
-            if hour.parity == ALL_DAYS:
-                if (hour.day, EVEN_DAYS) not in map_days_to_hours:
-                    map_days_to_hours[(hour.day, EVEN_DAYS)] = []
-                if (hour.day, ODD_DAYS) not in map_days_to_hours:
-                    map_days_to_hours[(hour.day, ODD_DAYS)] = []
+            if hour.parity & EVEN_DAYS:
+                map_days_to_hours[(hour.day, EVEN_DAYS)].append(hour)
+            if hour.parity & ODD_DAYS:
+                map_days_to_hours[(hour.day, ODD_DAYS)].append(hour)
 
-                map_days_to_hours[(hour.day, EVEN_DAYS)].append (hour)
-                map_days_to_hours[(hour.day, ODD_DAYS)].append (hour)
-            else:
-                if (hour.day, hour.parity) not in map_days_to_hours:
-                    map_days_to_hours[(hour.day, hour.parity)] = []
-                map_days_to_hours[(hour.day, hour.parity)].append (hour)
 
     day_lens: list[tuple[int,int]] = []
-    for day in map_days_to_hours:
-        current_hour_list = map_days_to_hours[day]
+    for current_hour_list in map_days_to_hours.values():
         to = max (hour.time_to for hour in current_hour_list)
         fro = min (hour.time_from for hour in current_hour_list)
         day_lens.append ((fro, to))
@@ -246,9 +240,8 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
     edit_soup = BeautifulSoup (edit_request.content, 'html.parser')
     shattered_subjects: list[str] = []
     for tr in edit_soup.find_all ('tr'):
-        span = tr.find('span')
-        if span is not None:
-            shattered_subjects.extend (span.contents)
+        if (span := tr.find('span')) is not None:
+            shattered_subjects.extend(span.contents)
 
     for subject in shattered_subjects:
 
@@ -280,8 +273,7 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
             group_num: str = typing.cast (re.Match, re.search (r'grupa nr (\d*)',
                                                                tr_span.contents[1].text)).group(1)
 
-            group_xd = groups[(subject, lesson_type)]
-            if group_num in group_xd.groups:
+            if group_num in groups[(subject, lesson_type)].groups:
                 left_indices.append (current_index-1)
 
         form_dict: dict[str, str] = {'_action': 'home/plany/rozbijWpis',
@@ -289,8 +281,7 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
                                      'nr': '0',
                                      'zapisz': '1',
                                      'csrftoken': csrftoken, }
-        for on_index in left_indices:
-            form_dict['entry' + str(on_index)] = 'on'
+        form_dict.update({'entry' + str(on_index) : 'on' for on_index in left_indices})
 
         payload, boundary = create_form_str (form_dict)
         requests.post ('https://usosweb.mimuw.edu.pl/kontroler.php',
@@ -399,7 +390,7 @@ def main():
         sys.exit (1)
     dydactic_cycle: str = words_in_cycle_file[0]
 
-    current_hash = ''.join(random.choice('ABCDEFGH') for _ in range(6))
+    current_hash = ''.join(random.choices('ABCDEFGH', k=6))
     print ('starting run:', current_hash)
     username = input('username:')
     password = getpass()
@@ -447,9 +438,9 @@ def main():
 
             plan: list[GroupEntry] = plans_with_values[i][0]
 
-            map_subjects_to_groups: dict[tuple[str, str], GroupEntry] = {}
-            for group in plan:
-                map_subjects_to_groups[(group.subject, group.entry_type)] = group
+            map_subjects_to_groups: dict[tuple[str, str], GroupEntry] = {
+                (group.subject, group.entry_type) : group for group in plan
+            }
 
             shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
 
