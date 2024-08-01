@@ -25,3 +25,41 @@ td {
     flex-direction: row;
     flex-wrap: wrap;
 }
+
+#subject_data {
+    display: flex;
+    flex-direction: row;
+    font-size: 6em;
+    background-color: grey;
+}
+
+#subject_text {
+    text-align: center;
+    flex-basis: 80%;
+}
+
+#type_text {
+    text-align: center;
+    flex-basis: 20%;
+}
+
+div {
+    cursor: pointer;
+}
+
+#badness_slider {
+    width: 100%;
+    height: 3em;
+}
+
+.button_page {
+    display: flex;
+    flex-direction: column;
+    margin: 1em;
+}
+
+#download_button {
+    width: 100%;
+    height: 3em;
+    font-size: 3em;
+}

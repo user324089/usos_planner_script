@@ -19,10 +19,31 @@ for (let i = 0; i < 6; i++) {
 
 let pages = []
 
+
+let page_buttons_div = document.querySelector ('#page_buttons')
+
+let page_button_number = 0
 for (let subject in data) {
+    let subject_name_span = document.createElement ('span')
+    subject_name_span.textContent = subject
+
+    let subject_buttons_div = document.createElement ('div')
+
+    subject_buttons_div.classList.add ('button_page')
+    subject_buttons_div.appendChild (subject_name_span)
+
     for (let type in data[subject]) {
         pages.push([subject, type])
+
+        let button = document.createElement ('button')
+        button.textContent = type
+        let current_page_number = page_button_number
+        page_button_number++
+        button.addEventListener ('click', function () {display_page(current_page_number)})
+        subject_buttons_div.appendChild (button)
     }
+
+    page_buttons_div.appendChild (subject_buttons_div)
 }
 
 let badness = {}
@@ -39,6 +60,9 @@ for (let subject in data) {
 let days_to_indices = {'poniedziałek': 0, 'wtorek': 1, 'środa': 2, 'czwartek': 3, 'piątek': 4}
 
 let subject_data = document.querySelector('#subject_data')
+let subject_text = document.querySelector('#subject_text')
+let type_text = document.querySelector('#type_text')
+
 let badness_slider = document.querySelector('#badness_slider')
 
 let currently_displayed_entries = []
@@ -72,7 +96,8 @@ function display_page (page_num) {
     console.log ('displaying page', page_num)
     current_subject = pages[page_num][0]
     current_type = pages[page_num][1]
-    subject_data.textContent = current_subject + ' ' + current_type
+    subject_text.textContent = current_subject
+    type_text.textContent = current_type
 
     let current_subject_group_map = data[pages[page_num][0]][pages[page_num][1]]
     for (let group_name in current_subject_group_map) {
@@ -91,6 +116,15 @@ function display_page (page_num) {
             let teacher_span = document.createElement ('span')
             teacher_span.textContent = `prowadzący: ${hour['teacher']}`
             whole_div.appendChild (teacher_span)
+            if (hour['parity'] == 'even') {
+                let even_span = document.createElement ('span')
+                even_span.textContent = '(nieparzyste)'
+                whole_div.appendChild (even_span)
+            } else if (hour['parity'] == 'odd') {
+                let odd = document.createElement ('span')
+                odd.textContent = '(parzyste)'
+                whole_div.appendChild (odd)
+            }
 
             let current_badness = badness[current_subject][current_type][group_name]
             whole_div.style = `background-color: color-mix(in srgb, green, red ${current_badness * 10}%);`
@@ -113,15 +147,6 @@ function display_page (page_num) {
     }
 }
 
-let page_buttons_div = document.querySelector ('#page_buttons')
-
-for (let i = 0; i < pages.length; i++) {
-    let button = document.createElement ('button')
-    button.textContent = i
-    button.addEventListener ('click', function () {display_page(i)})
-    page_buttons_div.appendChild (button)
-}
-
 display_page (0)
 
 function download_data(uri, name) {
@@ -134,9 +159,7 @@ function download_data(uri, name) {
     link.remove()
   }
 
-let download_button = document.createElement ('button')
-download_button.textContent = "DOWNLOAD"
+let download_button = document.querySelector ('#download_button')
 download_button.addEventListener ('click', function () {
     download_data ('data:text/json,' + JSON.stringify (badness), 'data.json')
 })
-document.body.appendChild (download_button)
