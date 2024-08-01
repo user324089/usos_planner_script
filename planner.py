@@ -228,8 +228,8 @@ def evaluate_plan_time (plan: list[GroupEntry]) -> int:
     day_lens: list[tuple[int,int]] = []
     for day in map_days_to_hours:
         current_hour_list = map_days_to_hours[day]
-        to = max ([hour.time_to for hour in current_hour_list])
-        fro = min ([hour.time_from for hour in current_hour_list])
+        to = max (hour.time_to for hour in current_hour_list)
+        fro = min (hour.time_from for hour in current_hour_list)
         day_lens.append ((fro, to))
 
     res = 0
@@ -325,7 +325,7 @@ def get_groups_from_plan (plan: int, cookies) -> list[list[GroupEntry]]:
 
     all_data = [get_entry_data(i) for i in entries]
 
-    all_groups = list(set([(data['subject'], data['type']) for data in all_data]))
+    all_groups = list({(data['subject'], data['type']) for data in all_data})
 
     group_to_options = {group: [] for group in all_groups}
     for data in all_data:
