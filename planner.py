@@ -46,6 +46,7 @@ def log_in_to_usos (username, password):
     return r3.cookies
 
 def add_course_to_plan(plan_id: int, course_code: str, dydactic_cycle: str, cookies):
+    """Adds the course (all groups) to the plan."""
     requests.get('https://usosweb.mimuw.edu.pl/kontroler.php',
                  params={'_action': 'home/plany/dodajWpis', 'plan_id': plan_id,
                          'klasa': 'P', 'prz_kod': course_code, 'cdyd_kod': dydactic_cycle},
@@ -93,7 +94,7 @@ def rename_plan (plan_id: int, new_name: str, cookies):
                   headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
                   cookies=cookies, timeout=20)
 
-def get_all_plan_ids (cookies) -> list[str]:
+def get_all_plan_ids (cookies) -> list[int]:
     """Returns ids of all user plans."""
     list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                        params={'_action': 'home/plany/index'},
@@ -110,7 +111,7 @@ def duplicate_plan (plan_id: int, num: int, name: str, cookies) -> list[int]:
     """Duplicates the plan with given plan_id num times, numbers the duplicates
     and returns their ids."""
     # get all plans
-    previous_plan_ids: set[str] = set(get_all_plan_ids(cookies))
+    previous_plan_ids: set[int] = set(get_all_plan_ids(cookies))
     # copy the original plan num times
     for _ in range (num):
         copy_plan(plan_id, cookies)
@@ -134,7 +135,7 @@ def transform_time (hours: str, minutes: str):
     adjusting for actual length of the class."""
     hours_i = int(hours)
     minutes_i = int(minutes)
-    if (minutes_i == 0 and hours_i != 10):
+    if minutes_i == 0 and hours_i != 10:
         hours_i -= 1
         minutes_i = 45
     return hours_i + minutes_i/60
@@ -214,8 +215,9 @@ class GroupEntry:
         self.hours: set[HourEntry] = set ()
 
     def __str__ (self):
-        res =  'group: ' + str(self.group_nums) + ' from ' + self.subject + ' ' + self.entry_type + '\n'
-        return res + '\n'.join(str(hour) for hour in self.hours)
+        return ('group: ' + str(self.group_nums) +
+                ' from ' + self.subject + ' ' + self.entry_type + '\n' +
+                '\n'.join(str(hour) for hour in self.hours))
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     """Checks if two GroupEntries overlap in time."""
@@ -379,22 +381,17 @@ def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
         all_total_entries.append (current_entry)
     return all_total_entries
 
-def list_possible_plans (all_total_entries: list[list[GroupEntry]]):
+def list_possible_plans (all_course_units: list[list[GroupEntry]]):
     """Returns a list of all plans with non-colliding groups."""
-    current_plans: list[list[GroupEntry]]  = [[]]
-    for entry in all_total_entries:
-        # entry is a subject (list of group entries)
-        new_plans: list[list[GroupEntry]]  = []
-        for old_plan in current_plans:
-            for new_group in entry:
-                can_be_added: bool = True
-                for old_group in old_plan:
-                    if do_groups_collide (old_group, new_group):
-                        can_be_added = False
-                        break
-                if can_be_added:
-                    new_plans.append (old_plan.copy())
-                    new_plans[-1].append (new_group)
+    current_plans: list[list[GroupEntry]] = [[]]
+    for course_unit in all_course_units:
+        # course unit is a class type (like WYK/CW) associated with a course,
+        # that consists of groups
+        new_plans: list[list[GroupEntry]] = []
+        for curr_plan in current_plans:
+            for new_group in course_unit:
+                if not any(do_groups_collide(new_group, curr_group) for curr_group in curr_plan):
+                    new_plans.append(curr_plan.copy() + [new_group])
         current_plans = new_plans
     return current_plans
 
@@ -442,13 +439,14 @@ def main():
 
         # get chosen evaluation function
         evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
-        if (len(evaluator_list) == 1 and evaluator_list[0] in evaluators):
+        if len(evaluator_list) == 1 and evaluator_list[0] in evaluators:
             current_unit.evaluator = evaluator_list[0]
 
         template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
 
         # create plan with all courses
-        plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
+        plan_id: int = create_plan (template_plan_name, dydactic_cycle,
+                                    subjects, php_session_cookies)
         current_unit.template_plan_id = plan_id
         # get group info from the created plan
         current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
@@ -464,9 +462,10 @@ def main():
                             php_session_cookies))
 
         possible_plans = list_possible_plans (current_unit.groups)
-        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
+        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan))
+                             for plan in possible_plans]
         # sort plans by badness
-        plans_with_values.sort (key=(lambda x: x[1]))
+        plans_with_values.sort (key=lambda x: x[1])
 
         # recreate the top NUM_PLANS plans in USOS
         for i in range (min(NUM_PLANS, len(plans_with_values))):
