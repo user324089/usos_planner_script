@@ -53,18 +53,13 @@ def add_course_to_plan(plan_id: int, course_code: str, dydactic_cycle: str, cook
                          'klasa': 'P', 'prz_kod': course_code, 'cdyd_kod': dydactic_cycle},
                  cookies=cookies, timeout=20)
 
-def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -> int:
-    """Creates a plan in USOS containing the given subjects (all groups)
-    and returns its id."""
+def create_plan (name: str, cookies) -> int:
+    """Creates an empty plan in USOS and returns its id."""
     create_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                    params={'_action': 'home/plany/utworz', 'nazwa': name},
                                    cookies=cookies, timeout=20)
-
-    plan_id = re.findall (r'plan_id=(\d*)', create_request.url)[0]
-    for subject in subjects:
-        add_course_to_plan(plan_id, subject, dydactic_cycle, cookies)
     print ('created plan:', name)
-    return plan_id
+    return re.findall (r'plan_id=(\d*)', create_request.url)[0]
 
 def create_form_str (options: dict[str, str]) -> tuple[str, str]:
     """Creates a multiform post payload and returns it and the boundary."""
@@ -78,13 +73,20 @@ def create_form_str (options: dict[str, str]) -> tuple[str, str]:
     total += boundary_longer + '--\r\n'
     return total, boundary
 
+def get_csrf_token(string: str) -> str | None:
+    """Returns the first CSRF token appearing in the string."""
+    if match := re.search('csrftoken = "(.*?)"', string):
+        return match.group(0)
+    return None
+
 def rename_plan (plan_id: int, new_name: str, cookies):
     """Changes plan name to new_name."""
     edit_request = requests.get('https://usosweb.mimuw.edu.pl/kontroler.php',
                                   params={'_action': 'home/plany/edytuj',
                                           'plan_id': plan_id},
                                   cookies=cookies, timeout=20)
-    csrftoken: str = typing.cast(re.Match, re.search('csrftoken = "(.*?)"', edit_request.text))[1]
+
+    csrftoken: str = get_csrf_token(edit_request.text)
     payload, boundary = create_form_str({'_action': 'home/plany/zmienNazwe',
                                          'plan_id': str(plan_id),
                                          'csrftoken': csrftoken,
@@ -111,9 +113,7 @@ def copy_plan (plan_id: int, cookies):
 def duplicate_plan (plan_id: int, num: int, name: str, cookies) -> list[int]:
     """Duplicates the plan with given plan_id num times, numbers the duplicates
     and returns their ids."""
-    # get all plans
     previous_plan_ids: set[int] = set(get_all_plan_ids(cookies))
-    # copy the original plan num times
     for _ in range (num):
         copy_plan(plan_id, cookies)
     # get all plans (now including the copies)
@@ -131,17 +131,42 @@ ODD_DAYS = 1
 EVEN_DAYS = 2
 ALL_DAYS = ODD_DAYS | EVEN_DAYS
 
-def transform_time (hours: str, minutes: str):
+def transform_time (hours_str: str, minutes_str: str):
     """Converts time into a decimal,
     adjusting for actual length of the class."""
-    hours_i = int(hours)
-    minutes_i = int(minutes)
-    if minutes_i == 0 and hours_i != 10:
-        hours_i -= 1
-        minutes_i = 45
-    return hours_i + minutes_i/60
+    hours = int(hours_str)
+    minutes = int(minutes_str)
+    if minutes == 0 and hours != 10:
+        hours -= 1
+        minutes = 45
+    return hours + minutes/60
+
+def get_weekday_polish(string: str) -> str | None:
+    """Returns first weekday (in Polish) appearing in the string."""
+    if match := re.search(r'(?:poniedziałek|wtorek|środa|czwartek|piątek)', string):
+        return match.group(0)
+    return None
+
+def get_parity_polish(string: str) -> str | None:
+    """Returns first parity descriptor (in Polish) appearing in the string."""
+    if match := re.search(r'(?:nieparzyste|parzyste|każd)', string):
+        return match.group(0)
+    return None
+
+def parity_to_int_polish(parity: str) -> int:
+    """Converts parity (in Polish) into an int representaion."""
+    match parity:
+        case 'nieparzyste':
+            return ODD_DAYS
+        case 'parzyste':
+            return EVEN_DAYS
+        case 'każd':
+            return ALL_DAYS
+        case _:
+            raise ValueError('parity is wrong')
 
 def get_entry_data (entry: bs4.element.Tag):
+    """Retrieves group info."""
     name = entry.find_all('div')[0].string
     dates = ''
     i: bs4.element.Tag
@@ -150,28 +175,14 @@ def get_entry_data (entry: bs4.element.Tag):
             continue
         if re.search (r'\d*:\d*', i.string):
             dates = i.string
-    name_match = typing.cast (re.Match[str], re.search (r'^([A-Z]*),\s*gr\.\s*(\d*)', name))
-    day_of_the_week = typing.cast (re.Match[str],
-                                   re.search (r'((?:poniedziałek|wtorek|środa|czwartek|piątek))',
-                                              dates))
-    parity_str = typing.cast(re.Match[str],
-                             re.search(r'((?:nieparzyste|parzyste|każd))', dates))
-    match (parity_str.group(1)):
-        case 'nieparzyste':
-            parity = ODD_DAYS
-        case 'parzyste':
-            parity = EVEN_DAYS
-        case 'każd':
-            parity = ALL_DAYS
-        case _:
-            raise ValueError('parity is wrong')
 
+    name_match = typing.cast (re.Match[str], re.search (r'^([A-Z]*),\s*gr\.\s*(\d*)', name))
     time_match = typing.cast(re.Match[str], re.search(r'(\d*):(\d*) - (\d*):(\d*)', dates))
 
     data = {'type': name_match.group(1),
             'group': name_match.group(2),
-            'day': day_of_the_week.group(1),
-            'parity': parity,
+            'day': get_weekday_polish(dates),
+            'parity': parity_to_int_polish(get_parity_polish(dates)),
             'subject': entry['name-id'],
             'time_from': transform_time (time_match.group(1), time_match.group(2)),
             'time_to': transform_time (time_match.group(3), time_match.group(4))}
@@ -261,8 +272,24 @@ def evaluate_plan_time (plan: list[GroupEntry]) -> int:
 
 evaluators = {'time': evaluate_plan_time}
 
+CLASSTYPES = {
+    "Laboratorium": 'LAB',
+    "Wykład": 'WYK',
+    "Ćwiczenia": 'CW',
+    "Wychowanie fizyczne": "WF"
+}
+def get_classtype_polish(string: str) -> str:
+    """Returns first classtype (in Polish) appearing in the string."""
+    pattern = r'(?:' + '|'.join(CLASSTYPES.keys()) + ')'
+    if class_type_match := re.search(pattern, string):
+        return CLASSTYPES[class_type_match.group(0)]
+    return "Unknown classtype"
+
 #   takes a dictionary from subject code to list of its groups
 def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cookies):
+    """Create a schedule containing given groups
+    by splitting a preexisting schedule given by plan_id."""
+    # groups: [[course, classtype], groups]
 
     edit_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                  params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
@@ -270,52 +297,46 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
     edit_soup = BeautifulSoup (edit_request.content, 'html.parser')
 
     # course units appearing in the plan
-    shattered_subjects: list[str] = []
+    shattered_courses: list[str] = []
     for tr in edit_soup.find_all ('tr'):
-        if (span := tr.find('span')) is not None:
-            shattered_subjects.extend(span.contents)
+        if span := tr.find('span'):
+            shattered_courses.extend(span.contents)
 
-    # iterating thorugh all the courses in the plan
-    for subject in shattered_subjects:
+    # iterating through all the courses in the plan
+    for course in shattered_courses:
 
         shatter_list_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                              params={'_action': 'home/plany/rozbijWpis',
                                                      'plan_id': plan_id, 'nr': 0},
                                              cookies=cookies, timeout=20)
 
-        csrftoken: str = typing.cast(re.Match, re.search ('csrftoken = "(.*?)"',
-                                                          shatter_list_request.text))[1]
+        csrftoken: str = get_csrf_token(shatter_list_request.text)
 
         shatter_list_soup = BeautifulSoup (shatter_list_request.content, 'html.parser')
         # remaining groups
-        left_indices: list[int] = []
+        remaining_indices: list[int] = []
 
         for current_index, tr in enumerate(shatter_list_soup.find_all ('tr')):
             tr_spans: list[bs4.Tag] = tr.find_all ('span')
             if len(tr_spans) < 2:
                 continue
             tr_span: bs4.Tag = tr_spans[-1]
-            # find class type (LAB, WYK, CW)
-            lesson_type: str = ""
-            if re.search ('Lab', tr_span.contents[0].text):
-                lesson_type = 'LAB'
-            elif re.search ('Wyk', tr_span.contents[0].text):
-                lesson_type = 'WYK'
-            else:
-                lesson_type = 'CW'
 
-            group_num: str = typing.cast (re.Match, re.search (r'grupa nr (\d*)',
-                                                               tr_span.contents[1].text)).group(1)
+            classtype: str = get_classtype_polish(tr_span.contents[0].text)
 
-            if group_num in groups[(subject, lesson_type)].group_nums:
-                left_indices.append (current_index-1)
+            if (group_num_match := re.search(r'grupa nr (\d*)', tr_span.contents[1].text)) is None:
+                raise TypeError("Group number not found.")
+            group_num = group_num_match.group(1)
+
+            if group_num in groups[(course, classtype)].group_nums:
+                remaining_indices.append (current_index-1)
 
         form_dict: dict[str, str] = {'_action': 'home/plany/rozbijWpis',
                                      'plan_id': str(plan_id),
                                      'nr': '0',
                                      'zapisz': '1',
                                      'csrftoken': csrftoken, }
-        form_dict.update({'entry' + str(on_index) : 'on' for on_index in left_indices})
+        form_dict.update({'entry' + str(on_index) : 'on' for on_index in remaining_indices})
 
         payload, boundary = create_form_str (form_dict)
         requests.post ('https://usosweb.mimuw.edu.pl/kontroler.php',
@@ -438,15 +459,17 @@ def main():
 
         # get chosen evaluation function
         evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
-        eval_func = 'time' # choose time as default evaluator function
+
         if len(evaluator_list) == 1 and evaluator_list[0] in evaluators:
             current_unit.evaluator = evaluator_list[0]
 
         template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
 
         # create plan with all courses
-        plan_id: int = create_plan (template_plan_name, dydactic_cycle,
-                                    subjects, php_session_cookies)
+        plan_id: int = create_plan(template_plan_name, php_session_cookies)
+        for subject in subjects:
+            add_course_to_plan(plan_id, subject, dydactic_cycle, php_session_cookies)
+
         current_unit.template_plan_id = plan_id
         # get group info from the created plan
         current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
