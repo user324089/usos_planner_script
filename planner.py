@@ -12,17 +12,17 @@ import bs4
 NUM_PLANS = 3
 
 def read_words_from_file (filename: str) -> list[str]:
+    """Returns a list of all words in the file."""
     try:
         with open (filename, 'r') as f:
             return f.read().split()
     except FileNotFoundError:
         return []
 
-#   logs to usos and returns cookies with php session
 def log_in_to_usos (username, password):
+    """Logs into USOS and returns cookies with PHP session."""
 
     r1 = requests.get('https://logowanie.uw.edu.pl/cas/login', timeout=20)
-
     cookies = r1.cookies
 
     lt = re.findall ('name="lt" value="(.*?)"', r1.text)[0]
@@ -34,7 +34,6 @@ def log_in_to_usos (username, password):
                               'username': username, 'password': password,
                               'jsessionid': r1.cookies['JSESSIONID']},
                        cookies=r1.cookies, timeout=20)
-
     cookies.update(r2.cookies)
 
     r3 = requests.get ('https://logowanie.uw.edu.pl/cas/login',
@@ -42,11 +41,11 @@ def log_in_to_usos (username, password):
                                'gateway': 'true'},
                        cookies=cookies, timeout=20)
     print ('logged in to usos')
-
     return r3.cookies
 
-#   creates plan with given subjects and returns its id
 def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -> int:
+    """Creates a plan in USOS containing the given subjects (all groups)
+    and returns its id."""
     create_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                    params={'_action': 'home/plany/utworz', 'nazwa': name},
                                    cookies=cookies, timeout=20)
@@ -60,8 +59,8 @@ def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -
     print ('created plan:', name)
     return plan_id
 
-#   creates multiform post payload and returns it and the boundary
 def create_form_str (options: dict[str, str]) -> tuple[str, str]:
+    """Creates a multiform post payload and returns it and the boundary."""
     boundary: str = '-' * 27 +  ''.join(random.choices('0123456789', k=20))
     boundary_longer: str = '--' + boundary
     total: str = ''
@@ -72,24 +71,31 @@ def create_form_str (options: dict[str, str]) -> tuple[str, str]:
     total += boundary_longer + '--\r\n'
     return (total, boundary)
 
-#   takes a plan id, duplicates it num times and returns ids of new plans
-def duplicate_plan (plan: int, num: int, name: str, cookies) -> list[int]:
+def duplicate_plan (plan_id: int, num: int, name: str, cookies) -> list[int]:
+    """Duplicates the plan with given plan_id num times, numbers the duplicates
+    and returns their ids."""
+    # get all plans
     list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                        params={'_action': 'home/plany/index'},
                                        cookies=cookies, timeout=20)
     previous_plan_ids: set[str] = set(re.findall(r'data-plan-id="(\d*)"', list_plans_request.text))
 
+    # copy the original plan num times
     for _ in range (num):
         requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                      params={'_action': 'home/plany/skopiuj', 'plan_id': plan},
+                      params={'_action': 'home/plany/skopiuj', 'plan_id': plan_id},
                       cookies=cookies, timeout=20)
 
+    # get all plans (now including the copies)
     list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                        params={'_action': 'home/plany/index'},
                                        cookies=cookies, timeout=20)
     current_plan_ids: list[int] = re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
+
+    # ids of the copies
     new_plan_ids = [plan_id for plan_id in current_plan_ids if plan_id not in previous_plan_ids]
 
+    # rename the copies
     for current_index, changed_plan_id in enumerate(new_plan_ids):
         change_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                                        params={'_action': 'home/plany/edytuj',
@@ -116,6 +122,8 @@ EVEN_DAYS = 2
 ALL_DAYS = ODD_DAYS | EVEN_DAYS
 
 def transform_time (hours: str, minutes: str):
+    """Converts time into a decimal,
+    adjusting for actual length of the class."""
     hours_i = int(hours)
     minutes_i = int(minutes)
     if (minutes_i == 0 and hours_i != 10):
@@ -160,6 +168,7 @@ def get_entry_data (entry: bs4.element.Tag):
     return data
 
 class HourEntry:
+    """Class representing a single class hour."""
     day: str
     parity: int
     time_from: int
@@ -178,6 +187,7 @@ class HourEntry:
         return hash((self.day, self.parity, self.time_from, self.time_to))
 
 def do_hours_collide (l: HourEntry, r: HourEntry) -> bool:
+    """Checks if two HourEntries overlap."""
     if l.day != r.day:
         return False
     if l.parity & r.parity == 0:
@@ -185,22 +195,29 @@ def do_hours_collide (l: HourEntry, r: HourEntry) -> bool:
     return l.time_from <= r.time_to and l.time_to >= r.time_from
 
 class GroupEntry:
+    """Class representing a class group.
+    If multiple groups have the same properties (subject, entry type, hours),
+    they might be grouped into a single GroupEntry with their numbers in group_nums."""
 
     def __init__ (self):
-        self.groups: list[str] = []
+        self.group_nums: list[str] = []
         self.subject: str = ""
         self.entry_type: str = ""
         self.hours: set[HourEntry] = set ()
 
     def __str__ (self):
-        res =  'group: ' + str(self.groups) + ' from ' + self.subject + ' ' + self.entry_type + '\n'
+        res =  'group: ' + str(self.group_nums) + ' from ' + self.subject + ' ' + self.entry_type + '\n'
         return res + '\n'.join(str(hour) for hour in self.hours)
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
+    """Checks if two GroupEntries overlap in time."""
     return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
 
 def evaluate_plan_time (plan: list[GroupEntry]) -> int:
+    """Returns plan badness with regard to the days' length, their start and end."""
+    # mapping hours of all classes taking place at a given day to that day
     map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = defaultdict(list[HourEntry])
+
     for entry in plan:
         for hour in entry.hours:
             if hour.parity & EVEN_DAYS:
@@ -238,11 +255,14 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
                                  params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
                                  cookies=cookies, timeout=20)
     edit_soup = BeautifulSoup (edit_request.content, 'html.parser')
+
+    # course units appearing in the plan
     shattered_subjects: list[str] = []
     for tr in edit_soup.find_all ('tr'):
         if (span := tr.find('span')) is not None:
             shattered_subjects.extend(span.contents)
 
+    # iterating thorugh all the courses in the plan
     for subject in shattered_subjects:
 
         shatter_list_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
@@ -254,7 +274,7 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
                                                           shatter_list_request.text))[1]
 
         shatter_list_soup = BeautifulSoup (shatter_list_request.content, 'html.parser')
-
+        # remaining groups
         left_indices: list[int] = []
 
         for current_index, tr in enumerate(shatter_list_soup.find_all ('tr')):
@@ -262,6 +282,7 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
             if len(tr_spans) < 2:
                 continue
             tr_span: bs4.Tag = tr_spans[-1]
+            # find class type (LAB, WYK, CW)
             lesson_type: str = ""
             if re.search ('Lab', tr_span.contents[0].text):
                 lesson_type = 'LAB'
@@ -273,7 +294,7 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
             group_num: str = typing.cast (re.Match, re.search (r'grupa nr (\d*)',
                                                                tr_span.contents[1].text)).group(1)
 
-            if group_num in groups[(subject, lesson_type)].groups:
+            if group_num in groups[(subject, lesson_type)].group_nums:
                 left_indices.append (current_index-1)
 
         form_dict: dict[str, str] = {'_action': 'home/plany/rozbijWpis',
@@ -291,10 +312,10 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
                        cookies=cookies, timeout=20)
 
 #   takes plan id and returns and returns a list which contains a list of groups for every subject
-def get_groups_from_plan (plan: int, cookies) -> list[list[GroupEntry]]:
+def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
     plan_page = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                               params={'_action': 'home/plany/pokaz',
-                                      'plan_id': plan,
+                                      'plan_id': plan_id,
                                       'plan_division': 'semester'},
                               cookies=cookies, timeout=20)
 
@@ -325,7 +346,7 @@ def get_groups_from_plan (plan: int, cookies) -> list[list[GroupEntry]]:
         for x in group_to_options[i]:
             if x['group'] not in current_groups:
                 current_groups[x['group']] = GroupEntry()
-                current_groups[x['group']].groups = [x['group']]
+                current_groups[x['group']].group_nums = [x['group']]
                 current_groups[x['group']].subject = i[0]
                 current_groups[x['group']].entry_type = i[1]
             current_hour = HourEntry()
@@ -342,7 +363,7 @@ def get_groups_from_plan (plan: int, cookies) -> list[list[GroupEntry]]:
                 for previous_group in current_entry:
                     if group.hours == previous_group.hours:
                         was_already = True
-                        previous_group.groups.extend(group.groups)
+                        previous_group.group_nums.extend(group.group_nums)
 
             if not was_already:
                 current_entry.append (group)
@@ -351,7 +372,7 @@ def get_groups_from_plan (plan: int, cookies) -> list[list[GroupEntry]]:
     return all_total_entries
 
 def list_possible_plans (all_total_entries: list[list[GroupEntry]]):
-
+    """Returns a list of all plans with non-colliding groups."""
     current_plans: list[list[GroupEntry]]  = [[]]
     for entry in all_total_entries:
         # entry is a subject (list of group entries)
@@ -370,6 +391,7 @@ def list_possible_plans (all_total_entries: list[list[GroupEntry]]):
     return current_plans
 
 class PlannerUnit:
+    """Class representing a timetable."""
     def __init__ (self):
         self.name: str = 'unnamed'
         self.evaluator: str = 'time'
@@ -384,6 +406,7 @@ class PlannerUnit:
         return 'name: ' + self.name + ' evaluator: ' + self.evaluator
 
 def main():
+    # read dydactic cycle from file
     words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
     if len(words_in_cycle_file) != 1:
         print ('failed to read dydactic cycle')
@@ -396,7 +419,6 @@ def main():
     password = getpass()
     php_session_cookies = log_in_to_usos (username, password)
 
-
     all_planner_units: list[PlannerUnit] = []
 
     directory: pathlib.Path = pathlib.Path ('./config')
@@ -405,35 +427,40 @@ def main():
             continue
         current_unit: PlannerUnit = PlannerUnit ()
         current_unit.name = directory.name
-        subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
 
+        # get all courses from codes file
+        subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
         current_unit.lessons = set(subjects)
 
+        # get chosen evaluation function
         evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
         if (len(evaluator_list) == 1 and evaluator_list[0] in evaluators):
             current_unit.evaluator = evaluator_list[0]
 
         template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
 
+        # create plan with all courses
         plan_id: int = create_plan (template_plan_name, dydactic_cycle, subjects, php_session_cookies)
         current_unit.template_plan_id = plan_id
+        # get group info from the created plan
         current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
 
         print (current_unit)
         all_planner_units.append (current_unit)
 
     for current_unit in all_planner_units:
-
-        plan_instence_ids: list[int] = (
+        # ids of copies of the original plan
+        plan_instance_ids: list[int] = (
             duplicate_plan (current_unit.template_plan_id, NUM_PLANS,
                             'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
                             php_session_cookies))
 
         possible_plans = list_possible_plans (current_unit.groups)
         plans_with_values = [(plan, evaluators[current_unit.evaluator](plan)) for plan in possible_plans]
-
+        # sort plans by badness
         plans_with_values.sort (key=(lambda x: x[1]))
 
+        # recreate the top NUM_PLANS plans in USOS
         for i in range (min(NUM_PLANS, len(plans_with_values))):
 
             plan: list[GroupEntry] = plans_with_values[i][0]
@@ -442,7 +469,7 @@ def main():
                 (group.subject, group.entry_type) : group for group in plan
             }
 
-            shatter_plan (plan_instence_ids[i], map_subjects_to_groups, php_session_cookies)
+            shatter_plan (plan_instance_ids[i], map_subjects_to_groups, php_session_cookies)
 
             print ('shattered plan')
 
