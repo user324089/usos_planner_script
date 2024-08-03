@@ -1,3 +1,5 @@
+"""Module that calculates the best possible timetables containing given courses
+using a given evaluator function, then creates them in USOS."""
 import re
 import typing
 import random
@@ -43,6 +45,12 @@ def log_in_to_usos (username, password):
     print ('logged in to usos')
     return r3.cookies
 
+def add_course_to_plan(plan_id: int, course_code: str, dydactic_cycle: str, cookies):
+    requests.get('https://usosweb.mimuw.edu.pl/kontroler.php',
+                 params={'_action': 'home/plany/dodajWpis', 'plan_id': plan_id,
+                         'klasa': 'P', 'prz_kod': course_code, 'cdyd_kod': dydactic_cycle},
+                 cookies=cookies, timeout=20)
+
 def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -> int:
     """Creates a plan in USOS containing the given subjects (all groups)
     and returns its id."""
@@ -52,10 +60,7 @@ def create_plan (name: str, dydactic_cycle: str, subjects: list[str], cookies) -
 
     plan_id = re.findall (r'plan_id=(\d*)', create_request.url)[0]
     for subject in subjects:
-        requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                      params={'_action': 'home/plany/dodajWpis', 'plan_id': plan_id,
-                              'klasa': 'P', 'prz_kod': subject, 'cdyd_kod': dydactic_cycle},
-                      cookies=cookies, timeout=20)
+        add_course_to_plan(plan_id, subject, dydactic_cycle, cookies)
     print ('created plan:', name)
     return plan_id
 
@@ -69,50 +74,53 @@ def create_form_str (options: dict[str, str]) -> tuple[str, str]:
         total += 'Content-Disposition: form-data; name="' + opt + '"\r\n\r\n'
         total += options[opt] + '\r\n'
     total += boundary_longer + '--\r\n'
-    return (total, boundary)
+    return total, boundary
+
+def rename_plan (plan_id: int, new_name: str, cookies):
+    """Changes plan name to new_name."""
+    edit_request = requests.get('https://usosweb.mimuw.edu.pl/kontroler.php',
+                                  params={'_action': 'home/plany/edytuj',
+                                          'plan_id': plan_id},
+                                  cookies=cookies, timeout=20)
+    csrftoken: str = typing.cast(re.Match, re.search('csrftoken = "(.*?)"', edit_request.text))[1]
+    payload, boundary = create_form_str({'_action': 'home/plany/zmienNazwe',
+                                         'plan_id': str(plan_id),
+                                         'csrftoken': csrftoken,
+                                         'nazwa': new_name})
+    requests.post('https://usosweb.mimuw.edu.pl/kontroler.php',
+                  params={'_action': 'home/plany/zmienNazwe', 'plan_id': plan_id},
+                  data=payload,
+                  headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
+                  cookies=cookies, timeout=20)
+
+def get_all_plan_ids (cookies) -> list[str]:
+    """Returns ids of all user plans."""
+    list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
+                                       params={'_action': 'home/plany/index'},
+                                       cookies=cookies, timeout=20)
+    return re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
+
+def copy_plan (plan_id: int, cookies):
+    """Creates a copy of a plan."""
+    requests.get('https://usosweb.mimuw.edu.pl/kontroler.php',
+                 params={'_action': 'home/plany/skopiuj', 'plan_id': plan_id},
+                 cookies=cookies, timeout=20)
 
 def duplicate_plan (plan_id: int, num: int, name: str, cookies) -> list[int]:
     """Duplicates the plan with given plan_id num times, numbers the duplicates
     and returns their ids."""
     # get all plans
-    list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                                       params={'_action': 'home/plany/index'},
-                                       cookies=cookies, timeout=20)
-    previous_plan_ids: set[str] = set(re.findall(r'data-plan-id="(\d*)"', list_plans_request.text))
-
+    previous_plan_ids: set[str] = set(get_all_plan_ids(cookies))
     # copy the original plan num times
     for _ in range (num):
-        requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                      params={'_action': 'home/plany/skopiuj', 'plan_id': plan_id},
-                      cookies=cookies, timeout=20)
-
+        copy_plan(plan_id, cookies)
     # get all plans (now including the copies)
-    list_plans_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                                       params={'_action': 'home/plany/index'},
-                                       cookies=cookies, timeout=20)
-    current_plan_ids: list[int] = re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
-
+    current_plan_ids: list[int] = get_all_plan_ids(cookies)
     # ids of the copies
     new_plan_ids = [plan_id for plan_id in current_plan_ids if plan_id not in previous_plan_ids]
-
     # rename the copies
     for current_index, changed_plan_id in enumerate(new_plan_ids):
-        change_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                                       params={'_action': 'home/plany/edytuj',
-                                               'plan_id': changed_plan_id},
-                                       cookies=cookies, timeout=20)
-        csrftoken: str = typing.cast(re.Match,
-                                     re.search ('csrftoken = "(.*?)"', change_request.text))[1]
-        new_name = name + ' ' + str(current_index)
-        payload, boundary = create_form_str ({'_action': 'home/plany/zmienNazwe',
-                                              'plan_id': str(changed_plan_id),
-                                              'csrftoken': csrftoken,
-                                              'nazwa': new_name})
-        requests.post ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                       params={'_action': 'home/plany/zmienNazwe', 'plan_id': changed_plan_id},
-                       data=payload,
-                       headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
-                       cookies=cookies, timeout=20)
+        rename_plan(changed_plan_id, name + ' ' + str(current_index), cookies)
         print ('duplicated plan ', current_index)
 
     return new_plan_ids
@@ -391,7 +399,7 @@ def list_possible_plans (all_total_entries: list[list[GroupEntry]]):
     return current_plans
 
 class PlannerUnit:
-    """Class representing a timetable."""
+    """Class representing a timetable optimizer."""
     def __init__ (self):
         self.name: str = 'unnamed'
         self.evaluator: str = 'time'
