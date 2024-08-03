@@ -7,6 +7,7 @@ from getpass import getpass
 import sys
 import pathlib
 from collections import defaultdict
+from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 import bs4
@@ -176,12 +177,14 @@ def get_entry_data (entry: bs4.element.Tag):
             'time_to': transform_time (time_match.group(3), time_match.group(4))}
     return data
 
+@dataclass
 class HourEntry:
     """Class representing a single class hour."""
     day: str
     parity: int
     time_from: int
     time_to: int
+
     def __str__ (self):
         return ('day: ' + self.day + ' parity: ' + str(self.parity)
                 + ' from: ' + str(self.time_from) + ' to: ' + str(self.time_to))
@@ -203,16 +206,16 @@ def do_hours_collide (l: HourEntry, r: HourEntry) -> bool:
         return False
     return l.time_from <= r.time_to and l.time_to >= r.time_from
 
+@dataclass
 class GroupEntry:
     """Class representing a class group.
     If multiple groups have the same properties (subject, entry type, hours),
     they might be grouped into a single GroupEntry with their numbers in group_nums."""
 
-    def __init__ (self):
-        self.group_nums: list[str] = []
-        self.subject: str = ""
-        self.entry_type: str = ""
-        self.hours: set[HourEntry] = set ()
+    group_nums: list[str] = field(default_factory=list)
+    subject: str = ""
+    entry_type: str = ""
+    hours: set[HourEntry] = field(default_factory=set)
 
     def __str__ (self):
         return ('group: ' + str(self.group_nums) +
@@ -355,16 +358,14 @@ def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
         x: dict[str, typing.Any]
         for x in group_to_options[i]:
             if x['group'] not in current_groups:
-                current_groups[x['group']] = GroupEntry()
-                current_groups[x['group']].group_nums = [x['group']]
-                current_groups[x['group']].subject = i[0]
-                current_groups[x['group']].entry_type = i[1]
-            current_hour = HourEntry()
-            current_hour.day = x['day']
-            current_hour.parity = x['parity']
-            current_hour.time_from = x['time_from']
-            current_hour.time_to = x['time_to']
+                current_groups[x['group']] = GroupEntry(group_nums = [x['group']],
+                                                        subject = i[0],
+                                                        entry_type = i[1])
 
+            current_hour = HourEntry(day = x['day'],
+                                     parity = x['parity'],
+                                     time_from = x['time_from'],
+                                     time_to = x['time_to'])
             current_groups[x['group']].hours.add (current_hour)
 
         for group in current_groups.values():
@@ -395,17 +396,16 @@ def list_possible_plans (all_course_units: list[list[GroupEntry]]):
         current_plans = new_plans
     return current_plans
 
+@dataclass
 class PlannerUnit:
     """Class representing a timetable optimizer."""
-    def __init__ (self):
-        self.name: str = 'unnamed'
-        self.evaluator: str = 'time'
-        # all attended lessons
-        self.lessons: set[str] = set()
-        # all groups of attended lessons
-        self.groups: list[list[GroupEntry]] = []
-
-        self.template_plan_id: int = -1
+    name: str = 'unnamed'
+    evaluator: str = 'time'
+    # all attended lessons
+    lessons: set[str] = field(default_factory=set)
+    # all groups of attended lessons
+    groups: list[list[GroupEntry]] = field(default_factory=list)
+    template_plan_id: int = -1
 
     def __str__ (self):
         return 'name: ' + self.name + ' evaluator: ' + self.evaluator
@@ -430,8 +430,7 @@ def main():
     for directory in directory.iterdir():
         if not directory.is_dir():
             continue
-        current_unit: PlannerUnit = PlannerUnit ()
-        current_unit.name = directory.name
+        current_unit: PlannerUnit = PlannerUnit (name = directory.name)
 
         # get all courses from codes file
         subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
@@ -439,6 +438,7 @@ def main():
 
         # get chosen evaluation function
         evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
+        eval_func = 'time' # choose time as default evaluator function
         if len(evaluator_list) == 1 and evaluator_list[0] in evaluators:
             current_unit.evaluator = evaluator_list[0]
 
