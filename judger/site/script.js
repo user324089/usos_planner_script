@@ -1,6 +1,7 @@
 "use strict"
 
 let divs = []
+const MAX_BADNESS = 100
 
 let timetable_body = document.querySelector ('#timetable_body')
 for (let i = 0; i < 6; i++) {
@@ -64,6 +65,7 @@ let subject_text = document.querySelector('#subject_text')
 let type_text = document.querySelector('#type_text')
 
 let badness_slider = document.querySelector('#badness_slider')
+badness_slider.max = MAX_BADNESS
 
 let currently_displayed_entries = []
 let current_active_group = null
@@ -80,7 +82,7 @@ badness_slider.addEventListener("input", (event) => {
     console.log ('here')
     for (let div of map_group_names_to_divs[current_active_group]) {
         console.log ('in for')
-        div.style = `background-color: color-mix(in srgb, green, red ${event.target.value * 10}%);`
+        div.style = `background-color: color-mix(in srgb, green, red ${event.target.value/MAX_BADNESS * 100}%);`
     }
   });
 
