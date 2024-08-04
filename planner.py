@@ -73,11 +73,11 @@ def create_form_str (options: dict[str, str]) -> tuple[str, str]:
     total += boundary_longer + '--\r\n'
     return total, boundary
 
-def get_csrf_token(string: str) -> str | None:
+def get_csrf_token(string: str) -> str:
     """Returns the first CSRF token appearing in the string."""
     if match := re.search('csrftoken = "(.*?)"', string):
         return match.group(0)
-    return None
+    raise RuntimeError ('failed to read csrf token')
 
 def rename_plan (plan_id: int, new_name: str, cookies):
     """Changes plan name to new_name."""
@@ -147,11 +147,11 @@ def get_weekday_polish(string: str) -> str | None:
         return match.group(0)
     return None
 
-def get_parity_polish(string: str) -> str | None:
+def get_parity_polish(string: str) -> str:
     """Returns first parity descriptor (in Polish) appearing in the string."""
     if match := re.search(r'(?:nieparzyste|parzyste|każd)', string):
         return match.group(0)
-    return None
+    raise RuntimeError ('failed to read parity')
 
 def parity_to_int_polish(parity: str) -> int:
     """Converts parity (in Polish) into an int representaion."""
