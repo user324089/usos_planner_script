@@ -220,7 +220,7 @@ def evaluate_plan_custom (plan: list[group_entry], path: pathlib.Path) -> int:
     result: int = 0
     for group in plan:
         values_for_groups = [int(data[group.subject][group.entry_type][single_group]) for single_group in group.groups]
-        result += max(values_for_groups)
+        result += min(values_for_groups)
 
     return result
 
