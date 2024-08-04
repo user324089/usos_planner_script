@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 import bs4
+import json
 
 NUM_PLANS = 3
 
@@ -237,7 +238,7 @@ def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     """Checks if two GroupEntries overlap in time."""
     return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
 
-def evaluate_plan_time (plan: list[GroupEntry]) -> int:
+def evaluate_plan_time (plan: list[GroupEntry], _: pathlib.Path) -> int:
     """Returns plan badness with regard to the days' length, their start and end."""
     # mapping hours of all classes taking place at a given day to that day
     map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = defaultdict(list[HourEntry])
@@ -269,8 +270,23 @@ def evaluate_plan_time (plan: list[GroupEntry]) -> int:
         if l[1] - l[0] > 9:
             res += 30
     return res
+custom_evaluate_data = {}
+def evaluate_plan_custom (plan: list[GroupEntry], path: pathlib.Path) -> int:
+    if path in custom_evaluate_data:
+        data = custom_evaluate_data[path]
+    else:
+        with open ((path / 'data.json').resolve(), 'r') as data_file:
+            data = json.load(data_file)
+            custom_evaluate_data[path] = data
+    result: int = 0
+    for group in plan:
+        values_for_groups = [int(data[group.subject][group.entry_type][single_group]) for single_group in group.group_nums]
+        result += min(values_for_groups)
 
-evaluators = {'time': evaluate_plan_time}
+    return result
+
+
+evaluators = {'time': evaluate_plan_time, 'custom': evaluate_plan_custom}
 
 CLASSTYPES = {
     "Laboratorium": 'LAB',
@@ -426,6 +442,8 @@ class PlannerUnit:
     lessons: set[str] = field(default_factory=set)
     # all groups of attended lessons
     groups: list[list[GroupEntry]] = field(default_factory=list)
+    config_path: pathlib.Path = field(default_factory=pathlib.Path)
+
     template_plan_id: int = -1
 
     def __str__ (self):
@@ -473,6 +491,7 @@ def main():
         current_unit.template_plan_id = plan_id
         # get group info from the created plan
         current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
+        current_unit.config_path = directory
 
         print (current_unit)
         all_planner_units.append (current_unit)
@@ -485,7 +504,7 @@ def main():
                             php_session_cookies))
 
         possible_plans = list_possible_plans (current_unit.groups)
-        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan))
+        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan, current_unit.config_path))
                              for plan in possible_plans]
         # sort plans by badness
         plans_with_values.sort (key=lambda x: x[1])

@@ -1,0 +1,65 @@
+.timetable_row {
+    height: 4em;
+    width: 100%;
+    border-width: 0.3em;
+    border-style: solid;
+    border-color: black;
+}
+
+td {
+    border-width: 0.3em;
+    border-color: black;
+    border-style: solid;
+}
+
+.timetable_entry {
+    display: flex;
+    flex-direction: column;
+    background-color: grey;
+    border-width: 0.1em;
+    border-style: solid;
+}
+
+#page_buttons {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+#subject_data {
+    display: flex;
+    flex-direction: row;
+    font-size: 6em;
+    background-color: grey;
+}
+
+#subject_text {
+    text-align: center;
+    flex-basis: 80%;
+}
+
+#type_text {
+    text-align: center;
+    flex-basis: 20%;
+}
+
+div {
+    cursor: pointer;
+}
+
+#badness_slider {
+    width: 100%;
+    height: 3em;
+}
+
+.button_page {
+    display: flex;
+    flex-direction: column;
+    margin: 1em;
+}
+
+#download_button {
+    width: 100%;
+    height: 3em;
+    font-size: 3em;
+}

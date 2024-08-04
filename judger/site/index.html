@@ -1,0 +1,44 @@
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="styles.css">
+    <title>Document</title>
+</head>
+
+<body>
+    <div id="subject_data">
+        <span id="subject_text"></span>
+        <span id="type_text"></span>
+    </div>
+    <table style="width: 100%; font-size: 30;" id="timetable">
+        <colgroup>
+            <col span="1" style="width: 20%;">
+            <col span="1" style="width: 20%;">
+            <col span="1" style="width: 20%;">
+            <col span="1" style="width: 20%;">
+            <col span="1" style="width: 20%;">
+        </colgroup>
+        <tbody id="timetable_body">
+            <tr style="font-size: 40;" id="timetable_headers">
+                <th>poniedziałek</th>
+                <th>wtorek</th>
+                <th>środa</th>
+                <th>czwartek</th>
+                <th>piątek</th>
+            </tr>
+        </tbody>
+    </table>
+
+    <input type="range" min="0" value="0" class="slider" id="badness_slider">
+
+    <div id="page_buttons"></div>
+
+    <button id="download_button">Download</button>
+
+    <script src="data.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
