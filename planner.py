@@ -167,7 +167,7 @@ def parity_to_int_polish(parity: str) -> int:
             raise ValueError('parity is wrong')
 
 def get_entry_data (entry: bs4.element.Tag):
-    """Retrieves group info."""
+    """Retrieves info about a single timetable entry."""
     name = entry.find_all('div')[0].string
     dates = ''
     i: bs4.element.Tag
@@ -181,7 +181,7 @@ def get_entry_data (entry: bs4.element.Tag):
     time_match = typing.cast(re.Match[str], re.search(r'(\d*):(\d*) - (\d*):(\d*)', dates))
 
     data = {'type': name_match.group(1),
-            'group': name_match.group(2),
+            'group_num': name_match.group(2),
             'day': get_weekday_polish(dates),
             'parity': parity_to_int_polish(get_parity_polish(dates)),
             'subject': entry['name-id'],
@@ -361,8 +361,21 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
                        headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
                        cookies=cookies, timeout=20)
 
-#   takes plan id and returns and returns a list which contains a list of groups for every subject
+def merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
+    """Returns list with groups merged by their hours (all group numbers are in group_nums)."""
+    merged_groups: list[GroupEntry] = []
+    for group in groups:
+        for merged_group in merged_groups:
+            if group.hours == merged_group.hours:
+                merged_group.group_nums.extend(group.group_nums)
+                break
+        else:
+            merged_groups.append(group)
+    return merged_groups
+
 def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
+    """Returns all groups appearing in the plan,
+    grouped in lists by their course units."""
     plan_page = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
                               params={'_action': 'home/plany/pokaz',
                                       'plan_id': plan_id,
@@ -370,54 +383,42 @@ def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
                               cookies=cookies, timeout=20)
 
     print ('downloaded plan')
+
     whole_plan_soup = BeautifulSoup (plan_page.content, 'html.parser')
+    all_timetable_entries = whole_plan_soup.find_all ('timetable-entry')
+    all_timetable_entries_data = [get_entry_data(i) for i in all_timetable_entries]
 
-    entries = whole_plan_soup.find_all ('timetable-entry')
+    tt_entries_by_course_unit = defaultdict(list)
+    for data in all_timetable_entries_data:
+        tt_entries_by_course_unit[(data['subject'], data['type'])].append(data)
 
-    all_data = [get_entry_data(i) for i in entries]
+    # all groups, grouped in lists by their course units
+    all_groups: list[list[GroupEntry]] = []
 
-    all_groups = list({(data['subject'], data['type']) for data in all_data})
-
-    group_to_options = {group: [] for group in all_groups}
-    for data in all_data:
-        group_to_options[(data['subject'], data['type'])].append(data)
-
-
-    all_total_entries: list[list[GroupEntry]] = []
-
-    for i in group_to_options:
-
-        current_entry: list[GroupEntry] = []
-        #current_entry.subject = i[0]
-        #current_entry.entry_type = i[1]
-
+    for course_unit, timetable_entries in tt_entries_by_course_unit.items():
+        # [group number : GroupEntry] - groups belonging to the current course unit
         current_groups: dict [str, GroupEntry] = {}
-        x: dict[str, typing.Any]
-        for x in group_to_options[i]:
-            if x['group'] not in current_groups:
-                current_groups[x['group']] = GroupEntry(group_nums = [x['group']],
-                                                        subject = i[0],
-                                                        entry_type = i[1])
 
-            current_hour = HourEntry(day = x['day'],
-                                     parity = x['parity'],
-                                     time_from = x['time_from'],
-                                     time_to = x['time_to'])
-            current_groups[x['group']].hours.add (current_hour)
+        for timetable_entry in timetable_entries:
+            group_num = timetable_entry['group_num']
+            if group_num not in current_groups:
+                current_groups[group_num] = GroupEntry(
+                    group_nums = [group_num],
+                    subject = course_unit[0],
+                    entry_type = course_unit[1]
+                )
 
-        for group in current_groups.values():
-            was_already: bool = False
-            if len(current_entry) > 0:
-                for previous_group in current_entry:
-                    if group.hours == previous_group.hours:
-                        was_already = True
-                        previous_group.group_nums.extend(group.group_nums)
+            current_hour = HourEntry(
+                day = timetable_entry['day'],
+                parity = timetable_entry['parity'],
+                time_from = timetable_entry['time_from'],
+                time_to = timetable_entry['time_to']
+            )
+            current_groups[group_num].hours.add(current_hour)
 
-            if not was_already:
-                current_entry.append (group)
+        all_groups.append(merge_groups_by_time(list(current_groups.values())))
 
-        all_total_entries.append (current_entry)
-    return all_total_entries
+    return all_groups
 
 def list_possible_plans (all_course_units: list[list[GroupEntry]]):
     """Returns a list of all plans with non-colliding groups."""
@@ -431,6 +432,8 @@ def list_possible_plans (all_course_units: list[list[GroupEntry]]):
                 if not any(do_groups_collide(new_group, curr_group) for curr_group in curr_plan):
                     new_plans.append(curr_plan.copy() + [new_group])
         current_plans = new_plans
+
+    print(str(len(current_plans)) + " possible plans found")
     return current_plans
 
 @dataclass
@@ -449,13 +452,50 @@ class PlannerUnit:
     def __str__ (self):
         return 'name: ' + self.name + ' evaluator: ' + self.evaluator
 
+def read_dydactic_cycle() -> str:
+    """Returns the dydactic cycle."""
+    if words := read_words_from_file('./config/cycle'):
+        return words[0]
+    raise RuntimeError('Failed to read dydactic cycle')
+
+def read_personal_config(path: pathlib.Path) -> (set[str], str):
+    """Returns courses and evaluator specified in personal config directory."""
+    courses = set(read_words_from_file(str((path / 'codes').resolve())))
+
+    words = read_words_from_file(str((path / 'eval').resolve()))
+    if len(words) == 1 and ((evaluator := words[0]) in evaluators):
+        return courses, evaluator
+    raise RuntimeError('Failed to read evaluator function')
+
+def init_planner_unit_from_config(path: pathlib.Path,
+                                  session_hash: str, dydactic_cycle: str,cookies) -> PlannerUnit:
+    """Creates a planner unit from config files."""
+    courses, evaluator = read_personal_config(path)
+    template_plan_name = 'automatic_template_' + path.name + '_' + session_hash
+    # create plan with all courses
+    plan_id: int = create_plan(template_plan_name, cookies)
+    for course in courses:
+        add_course_to_plan(plan_id, course, dydactic_cycle, cookies)
+
+    return PlannerUnit(
+        name = path.name,
+        lessons = courses,
+        evaluator = evaluator,
+        template_plan_id = plan_id,
+        groups = get_groups_from_plan(plan_id, cookies),
+        config_path = path
+    )
+
+def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[(list[GroupEntry], int)]:
+    """Returns top n timetables with scores for a given planner unit."""
+    possible_plans = list_possible_plans(planner_unit.groups)
+    plans_with_values = [(plan, evaluators[planner_unit.evaluator](plan, planner_unit.config_path))
+                         for plan in possible_plans]
+    # sort plans by badness, return top n
+    return sorted(plans_with_values, key=lambda x: x[1])[:n]
+
 def main():
-    # read dydactic cycle from file
-    words_in_cycle_file: list[str] = read_words_from_file ('./config/cycle')
-    if len(words_in_cycle_file) != 1:
-        print ('failed to read dydactic cycle')
-        sys.exit (1)
-    dydactic_cycle: str = words_in_cycle_file[0]
+    dydactic_cycle: str = read_dydactic_cycle()
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
     print ('starting run:', current_hash)
@@ -465,61 +505,32 @@ def main():
 
     all_planner_units: list[PlannerUnit] = []
 
-    directory: pathlib.Path = pathlib.Path ('./config')
-    for directory in directory.iterdir():
-        if not directory.is_dir():
-            continue
-        current_unit: PlannerUnit = PlannerUnit (name = directory.name)
+    config_directory: pathlib.Path = pathlib.Path ('./config')
+    personal_configs = [directory for directory
+                        in config_directory.iterdir() if directory.is_dir()]
 
-        # get all courses from codes file
-        subjects: list[str] = read_words_from_file (str((directory / 'codes').resolve()))
-        current_unit.lessons = set(subjects)
-
-        # get chosen evaluation function
-        evaluator_list: list[str] = read_words_from_file (str((directory / 'eval').resolve()))
-
-        if len(evaluator_list) == 1 and evaluator_list[0] in evaluators:
-            current_unit.evaluator = evaluator_list[0]
-
-        template_plan_name = 'automatic_template_' + current_unit.name + '_' + current_hash
-
-        # create plan with all courses
-        plan_id: int = create_plan(template_plan_name, php_session_cookies)
-        for subject in subjects:
-            add_course_to_plan(plan_id, subject, dydactic_cycle, php_session_cookies)
-
-        current_unit.template_plan_id = plan_id
-        # get group info from the created plan
-        current_unit.groups = get_groups_from_plan (plan_id, php_session_cookies)
-        current_unit.config_path = directory
-
-        print (current_unit)
-        all_planner_units.append (current_unit)
+    for personal_config in personal_configs:
+        current_unit = init_planner_unit_from_config(personal_config, current_hash,
+                                                     dydactic_cycle, php_session_cookies)
+        print(current_unit)
+        all_planner_units.append(current_unit)
 
     for current_unit in all_planner_units:
+        top_timetables = get_top_timetables(current_unit, NUM_PLANS)
+
         # ids of copies of the original plan
         plan_instance_ids: list[int] = (
-            duplicate_plan (current_unit.template_plan_id, NUM_PLANS,
-                            'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
-                            php_session_cookies))
+            duplicate_plan(current_unit.template_plan_id, len(top_timetables),
+                           'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
+                           php_session_cookies))
 
-        possible_plans = list_possible_plans (current_unit.groups)
-        plans_with_values = [(plan, evaluators[current_unit.evaluator](plan, current_unit.config_path))
-                             for plan in possible_plans]
-        # sort plans by badness
-        plans_with_values.sort (key=lambda x: x[1])
+        # recreate the top plans in USOS
+        for (timetable, _), plan_id in zip(top_timetables, plan_instance_ids):
 
-        # recreate the top NUM_PLANS plans in USOS
-        for i in range (min(NUM_PLANS, len(plans_with_values))):
-
-            plan: list[GroupEntry] = plans_with_values[i][0]
-
-            map_subjects_to_groups: dict[tuple[str, str], GroupEntry] = {
-                (group.subject, group.entry_type) : group for group in plan
+            course_unit_to_groups: dict[tuple[str, str], GroupEntry] = {
+                (group.subject, group.entry_type) : group for group in timetable
             }
-
-            shatter_plan (plan_instance_ids[i], map_subjects_to_groups, php_session_cookies)
-
+            shatter_plan (plan_id, course_unit_to_groups, php_session_cookies)
             print ('shattered plan')
 
 if __name__ == '__main__':
