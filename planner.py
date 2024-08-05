@@ -8,10 +8,10 @@ import sys
 import pathlib
 from collections import defaultdict
 from dataclasses import dataclass, field
+import json
 import requests
 from bs4 import BeautifulSoup
 import bs4
-import json
 
 NUM_PLANS = 3
 
@@ -144,13 +144,13 @@ def transform_time (hours_str: str, minutes_str: str):
 
 def get_weekday_polish(string: str) -> str | None:
     """Returns first weekday (in Polish) appearing in the string."""
-    if match := re.search(r'(?:poniedziałek|wtorek|środa|czwartek|piątek)', string):
+    if match := re.search(r'poniedziałek|wtorek|środa|czwartek|piątek', string):
         return match.group(0)
     return None
 
 def get_parity_polish(string: str) -> str:
     """Returns first parity descriptor (in Polish) appearing in the string."""
-    if match := re.search(r'(?:nieparzyste|parzyste|każd)', string):
+    if match := re.search(r'nieparzyste|parzyste|każd', string):
         return match.group(0)
     raise RuntimeError ('failed to read parity')
 
@@ -301,15 +301,65 @@ def get_classtype_polish(string: str) -> str:
         return CLASSTYPES[class_type_match.group(0)]
     return "Unknown classtype"
 
-#   takes a dictionary from subject code to list of its groups
+def shatter_course(plan_id: int, n: int, groups: dict[str, GroupEntry], cookies):
+    """Split n-th unsplit course entry in the timetable, keeping only given groups.
+    Groups must be sorted by classtype into lists."""
+    # groups: [classtype, GroupEntry]
+    shatter_list_request = requests.get(
+        'https://usosweb.mimuw.edu.pl/kontroler.php',
+        params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id, 'nr': n},
+        cookies=cookies,
+        timeout=20
+    )
+    csrftoken: str = get_csrf_token(shatter_list_request.text)
+    shatter_list_soup = BeautifulSoup(shatter_list_request.content, 'html.parser')
+    # remaining groups
+    remaining_indices: list[int] = []
+    for current_index, tr in enumerate(shatter_list_soup.find_all('tr')):
+        tr_spans: list[bs4.Tag] = tr.find_all('span')
+        if len(tr_spans) < 2:
+            continue
+        tr_span: bs4.Tag = tr_spans[-1]
+
+        classtype: str = get_classtype_polish(tr_span.contents[0].text)
+
+        if (group_num_match := re.search(r'grupa nr (\d*)', tr_span.contents[1].text)) is None:
+            raise TypeError("Group number not found.")
+        group_num = group_num_match.group(1)
+
+        if group_num in groups[classtype].group_nums:
+            remaining_indices.append(current_index - 1)
+
+    form_dict: dict[str, str] = {
+        '_action': 'home/plany/rozbijWpis',
+        'plan_id': str(plan_id),
+        'nr': str(n),
+        'zapisz': '1',
+        'csrftoken': csrftoken
+    }
+    form_dict.update({'entry' + str(on_index): 'on' for on_index in remaining_indices})
+
+    payload, boundary = create_form_str(form_dict)
+    requests.post(
+        'https://usosweb.mimuw.edu.pl/kontroler.php',
+        params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id},
+        data=payload,
+        headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
+        cookies=cookies,
+        timeout=20
+    )
+
 def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cookies):
     """Create a schedule containing given groups
     by splitting a preexisting schedule given by plan_id."""
     # groups: [[course, classtype], groups]
 
-    edit_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                                 params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
-                                 cookies=cookies, timeout=20)
+    edit_request = requests.get (
+        'https://usosweb.mimuw.edu.pl/kontroler.php',
+        params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
+        cookies=cookies,
+        timeout=20
+    )
     edit_soup = BeautifulSoup (edit_request.content, 'html.parser')
 
     # course units appearing in the plan
@@ -318,48 +368,13 @@ def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cooki
         if span := tr.find('span'):
             shattered_courses.extend(span.contents)
 
+    groups_to_keep_by_course = defaultdict(lambda: defaultdict(GroupEntry))
+    for (course, classtype), group in groups.items():
+        groups_to_keep_by_course[course][classtype] = group
+
     # iterating through all the courses in the plan
     for course in shattered_courses:
-
-        shatter_list_request = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                                             params={'_action': 'home/plany/rozbijWpis',
-                                                     'plan_id': plan_id, 'nr': 0},
-                                             cookies=cookies, timeout=20)
-
-        csrftoken: str = get_csrf_token(shatter_list_request.text)
-
-        shatter_list_soup = BeautifulSoup (shatter_list_request.content, 'html.parser')
-        # remaining groups
-        remaining_indices: list[int] = []
-
-        for current_index, tr in enumerate(shatter_list_soup.find_all ('tr')):
-            tr_spans: list[bs4.Tag] = tr.find_all ('span')
-            if len(tr_spans) < 2:
-                continue
-            tr_span: bs4.Tag = tr_spans[-1]
-
-            classtype: str = get_classtype_polish(tr_span.contents[0].text)
-
-            if (group_num_match := re.search(r'grupa nr (\d*)', tr_span.contents[1].text)) is None:
-                raise TypeError("Group number not found.")
-            group_num = group_num_match.group(1)
-
-            if group_num in groups[(course, classtype)].group_nums:
-                remaining_indices.append (current_index-1)
-
-        form_dict: dict[str, str] = {'_action': 'home/plany/rozbijWpis',
-                                     'plan_id': str(plan_id),
-                                     'nr': '0',
-                                     'zapisz': '1',
-                                     'csrftoken': csrftoken, }
-        form_dict.update({'entry' + str(on_index) : 'on' for on_index in remaining_indices})
-
-        payload, boundary = create_form_str (form_dict)
-        requests.post ('https://usosweb.mimuw.edu.pl/kontroler.php',
-                       params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id},
-                       data=payload,
-                       headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
-                       cookies=cookies, timeout=20)
+        shatter_course(plan_id, 0, groups_to_keep_by_course[course], cookies)
 
 def merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
     """Returns list with groups merged by their hours (all group numbers are in group_nums)."""
