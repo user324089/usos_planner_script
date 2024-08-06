@@ -509,7 +509,7 @@ def read_dydactic_cycle() -> str:
         return words[0]
     raise RuntimeError('Failed to read dydactic cycle')
 
-def read_personal_config(path: pathlib.Path) -> (set[str], str):
+def read_personal_config(path: pathlib.Path) -> tuple[set[str], str]:
     """Returns courses and evaluator specified in personal config directory."""
     courses = set(read_words_from_file(str((path / 'codes').resolve())))
 
@@ -537,7 +537,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
         config_path = path
     )
 
-def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[(list[GroupEntry], int)]:
+def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[tuple[list[GroupEntry], int]]:
     """Returns top n timetables with scores for a given planner unit."""
     possible_timetables = list_possible_timetables(planner_unit.groups)
     timetables_with_values = [
