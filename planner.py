@@ -8,6 +8,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import json
 import usos_tools
+import argparse
 
 NUM_TIMETABLES = 3
 
@@ -159,8 +160,25 @@ def main() -> int:
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
     print ('starting run:', current_hash)
-    username = input('username:')
-    password = getpass()
+
+
+    parser = argparse.ArgumentParser(description='Usos planner')
+    parser.add_argument('-l', '--login', metavar='FILE', help='Usos login data file')
+    args = parser.parse_args()
+    if args.login:
+        login_filename = args.login
+        with open (login_filename, 'r') as login_file:
+            credentials = login_file.read().split('\n')
+            if (len(credentials) < 2):
+                print ('Failed to read credentials')
+                return 1
+            username = credentials[0]
+            password = credentials[1]
+    else:
+        username = input('username:')
+        password = getpass()
+
+
     php_session_cookies = usos_tools.log_in_to_usos (username, password)
 
     all_planner_units: list[PlannerUnit] = []

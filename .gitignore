@@ -3,3 +3,4 @@ config
 */cycle
 subjects.json
 */__pycache__
+login_data
