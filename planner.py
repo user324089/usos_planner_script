@@ -7,8 +7,10 @@ import pathlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 import json
-import usos_tools
 import argparse
+import usos_tools.login
+import usos_tools.timetables as tt
+from usos_tools.utils import EVEN_DAYS, ODD_DAYS
 
 NUM_TIMETABLES = 3
 
@@ -20,17 +22,17 @@ def read_words_from_file (filename: str) -> list[str]:
     except FileNotFoundError:
         return []
 
-def evaluate_timetable_time (timetable: list[usos_tools.GroupEntry], _: pathlib.Path) -> int:
+def evaluate_timetable_time (timetable: list[tt.GroupEntry], _: pathlib.Path) -> int:
     """Returns timetable badness with regard to the days' length, their start and end."""
     # mapping hours of all classes taking place at a given day to that day
-    map_days_to_hours: dict[tuple[str, int], list[usos_tools.HourEntry]] = defaultdict(list[usos_tools.HourEntry])
+    map_days_to_hours: dict[tuple[str, int], list[tt.HourEntry]] = defaultdict(list[tt.HourEntry])
 
     for entry in timetable:
         for hour in entry.hours:
-            if hour.parity & usos_tools.EVEN_DAYS:
-                map_days_to_hours[(hour.day, usos_tools.EVEN_DAYS)].append(hour)
-            if hour.parity & usos_tools.ODD_DAYS:
-                map_days_to_hours[(hour.day, usos_tools.ODD_DAYS)].append(hour)
+            if hour.parity & EVEN_DAYS:
+                map_days_to_hours[(hour.day, EVEN_DAYS)].append(hour)
+            if hour.parity & ODD_DAYS:
+                map_days_to_hours[(hour.day, ODD_DAYS)].append(hour)
 
 
     day_lens: list[tuple[int,int]] = []
@@ -54,7 +56,7 @@ def evaluate_timetable_time (timetable: list[usos_tools.GroupEntry], _: pathlib.
     return res
 
 custom_evaluate_data = {}
-def evaluate_timetable_custom (timetable: list[usos_tools.GroupEntry], path: pathlib.Path) -> int:
+def evaluate_timetable_custom (timetable: list[tt.GroupEntry], path: pathlib.Path) -> int:
     """Returns timetable badness as a sum of badnesses of each group in it."""
     if path in custom_evaluate_data:
         data = custom_evaluate_data[path]
@@ -76,16 +78,16 @@ EVALUATORS = {
     'custom': evaluate_timetable_custom
 }
 
-def list_possible_timetables (all_course_units: list[list[usos_tools.GroupEntry]]):
+def list_possible_timetables (all_course_units: list[list[tt.GroupEntry]]):
     """Returns a list of all timetables with non-colliding groups."""
-    current_timetables: list[list[usos_tools.GroupEntry]] = [[]]
+    current_timetables: list[list[tt.GroupEntry]] = [[]]
     for course_unit in all_course_units:
         # course unit is a class type (like WYK/CW) associated with a course,
         # that consists of groups
-        new_timetables: list[list[usos_tools.GroupEntry]] = []
+        new_timetables: list[list[tt.GroupEntry]] = []
         for curr_timetable in current_timetables:
             for new_group in course_unit:
-                if not any(usos_tools.do_groups_collide(new_group, curr_group)
+                if not any(tt.do_groups_collide(new_group, curr_group)
                            for curr_group in curr_timetable):
                     new_timetables.append(curr_timetable.copy() + [new_group])
         current_timetables = new_timetables
@@ -102,7 +104,7 @@ class PlannerUnit:
     courses: set[str] = field(default_factory=set)
     # all groups from all attended courses, sorted by course,
     # then by course unit they belong to
-    groups: list[list[usos_tools.GroupEntry]] = field(default_factory=list)
+    groups: list[list[tt.GroupEntry]] = field(default_factory=list)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
 
     template_timetable_id: int = -1
@@ -131,20 +133,20 @@ def init_planner_unit_from_config(path: pathlib.Path,
     courses, evaluator = read_personal_config(path)
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
     # create a timetable with all courses
-    timetable_id: int = usos_tools.create_timetable(template_timetable_name, cookies)
+    timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
     for course in courses:
-        usos_tools.add_course_to_timetable(timetable_id, course, dydactic_cycle, cookies)
+        tt.add_course_to_timetable(timetable_id, course, dydactic_cycle, cookies)
 
     return PlannerUnit(
         name = path.name,
         courses = courses,
         evaluator = evaluator,
         template_timetable_id= timetable_id,
-        groups = usos_tools.get_groups_from_timetable(timetable_id, cookies),
+        groups = tt.get_groups_from_timetable(timetable_id, cookies),
         config_path = path
     )
 
-def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[tuple[list[usos_tools.GroupEntry], int]]:
+def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[tuple[list[tt.GroupEntry], int]]:
     """Returns top n timetables with scores for a given planner unit."""
     possible_timetables = list_possible_timetables(planner_unit.groups)
     timetables_with_values = [
@@ -179,7 +181,7 @@ def main() -> int:
         password = getpass()
 
 
-    php_session_cookies = usos_tools.log_in_to_usos (username, password)
+    php_session_cookies = usos_tools.login.log_in_to_usos (username, password)
 
     all_planner_units: list[PlannerUnit] = []
 
@@ -201,7 +203,7 @@ def main() -> int:
         top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
         # ids of copies of the original timetable
         timetable_instance_ids: list[int] = (
-            usos_tools.duplicate_timetable(
+            tt.duplicate_timetable(
                 current_unit.template_timetable_id,
                 len(top_timetables),
                 'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
@@ -212,10 +214,10 @@ def main() -> int:
         # recreate the top timetables in USOS
         for (timetable, _), timetable_id in zip(top_timetables, timetable_instance_ids):
 
-            course_unit_to_groups: dict[tuple[str, str], usos_tools.GroupEntry] = {
+            course_unit_to_groups: dict[tuple[str, str], tt.GroupEntry] = {
                 (group.course, group.classtype) : group for group in timetable
             }
-            usos_tools.split_timetable (timetable_id, course_unit_to_groups, php_session_cookies)
+            tt.split_timetable (timetable_id, course_unit_to_groups, php_session_cookies)
             print ('shattered timetable')
     return 0
 
