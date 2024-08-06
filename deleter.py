@@ -28,21 +28,21 @@ def log_in_to_usos (username, password):
     print ('logged in to usos')
     return r3.cookies
 
-def get_all_plans (cookies) -> list[tuple[str, int]]:
+def get_all_timetables (cookies) -> list[tuple[str, int]]:
     r = requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/index'}, cookies=cookies)
     soup = BeautifulSoup (r.content, 'html.parser')
-    plans: list [tuple[str, int]] = []
+    timetables: list [tuple[str, int]] = []
     for tr in soup.find_all ('tr')[:-1]:
         td: bs4.element.Tag = tr.find ('td')
-        plan_name = td.text.strip()
+        timetable_name = td.text.strip()
         dropdown: bs4.element.Tag = tr.find ('dropdown-menu')
-        dropdown_data_plan_id: str | list[str] = dropdown['data-plan-id']
-        dropdown_plan_id = int(str(dropdown_data_plan_id))
-        plans.append ((plan_name, dropdown_plan_id))
-    return plans
+        dropdown_data_timetable_id: str | list[str] = dropdown['data-plan-id']
+        dropdown_timetable_id = int(str(dropdown_data_timetable_id))
+        timetables.append ((timetable_name, dropdown_timetable_id))
+    return timetables
 
-def delete_plan (plan_id: int, cookies):
-    requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/usun', 'plan_id': plan_id}, cookies=cookies)
+def delete_timetable (timetable_id: int, cookies):
+    requests.get ('https://usosweb.mimuw.edu.pl/kontroler.php', params={'_action': 'home/plany/usun', 'plan_id': timetable_id}, cookies=cookies)
 
 def main ():
     username: str = input('username:')
@@ -51,9 +51,9 @@ def main ():
     expression: str = input()
 
     cookies = log_in_to_usos (username, password)
-    for plan_name, plan_id in get_all_plans (cookies):
-        if re.match (expression, plan_name):
-            delete_plan (plan_id, cookies)
+    for timetable_name, timetable_id in get_all_timetables (cookies):
+        if re.match (expression, timetable_name):
+            delete_timetable (timetable_id, cookies)
 
 if __name__ == '__main__':
     main()

@@ -13,7 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 import bs4
 
-NUM_PLANS = 3
+NUM_TIMETABLES = 3
 USOSWEB_KONTROLER = 'https://usosweb.mimuw.edu.pl/kontroler.php'
 DEFAULT_TIMEOUT = 10
 
@@ -46,33 +46,32 @@ def log_in_to_usos (username, password):
 
     r3 = requests.get(
         'https://logowanie.uw.edu.pl/cas/login',
-        params={'service': USOSWEB_KONTROLER + '?_action=news/default',
-                'gateway': 'true'},
+        params={'service': USOSWEB_KONTROLER + '?_action=news/default', 'gateway': 'true'},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
     print ('logged in to usos')
     return r3.cookies
 
-def add_course_to_plan(plan_id: int, course_code: str, dydactic_cycle: str, cookies):
-    """Adds the course (all groups) to the plan."""
+def add_course_to_timetable(timetable_id: int, course_id: str, dydactic_cycle: str, cookies):
+    """Adds the course (all groups) to the timetable."""
     requests.get(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/dodajWpis', 'plan_id': plan_id,
-                'klasa': 'P', 'prz_kod': course_code, 'cdyd_kod': dydactic_cycle},
+        params={'_action': 'home/plany/dodajWpis', 'plan_id': timetable_id,
+                'klasa': 'P', 'prz_kod': course_id, 'cdyd_kod': dydactic_cycle},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
 
-def create_plan (name: str, cookies) -> int:
-    """Creates an empty plan in USOS and returns its id."""
+def create_timetable (name: str, cookies) -> int:
+    """Creates an empty timetable in USOS and returns its id."""
     create_request = requests.get (
         USOSWEB_KONTROLER,
         params={'_action': 'home/plany/utworz', 'nazwa': name},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
-    print ('created plan:', name)
+    print ('created timetable:', name)
     return re.findall (r'plan_id=(\d*)', create_request.url)[0]
 
 def create_form_str (options: dict[str, str]) -> tuple[str, str]:
@@ -93,64 +92,66 @@ def get_csrf_token(string: str) -> str:
         return match.group(0)
     raise RuntimeError ('failed to read csrf token')
 
-def rename_plan (plan_id: int, new_name: str, cookies):
-    """Changes plan name to new_name."""
+def rename_timetable (timetable_id: int, new_name: str, cookies):
+    """Changes timetable's name to new_name."""
     edit_request = requests.get(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
+        params={'_action': 'home/plany/edytuj', 'plan_id': timetable_id},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
     csrftoken: str = get_csrf_token(edit_request.text)
     payload, boundary = create_form_str({
         '_action': 'home/plany/zmienNazwe',
-        'plan_id': str(plan_id),
+        'plan_id': str(timetable_id),
         'csrftoken': csrftoken,
         'nazwa': new_name
     })
     requests.post(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/zmienNazwe', 'plan_id': plan_id},
+        params={'_action': 'home/plany/zmienNazwe', 'plan_id': timetable_id},
         data=payload,
         headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
-        cookies=cookies, timeout=DEFAULT_TIMEOUT
+        cookies=cookies,
+        timeout=DEFAULT_TIMEOUT
     )
 
-def get_all_plan_ids (cookies) -> list[int]:
-    """Returns ids of all user plans."""
-    list_plans_request = requests.get (
+def get_all_timetables_ids (cookies) -> list[int]:
+    """Returns ids of all user's timetables."""
+    list_timetables_request = requests.get (
         USOSWEB_KONTROLER,
         params={'_action': 'home/plany/index'},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
-    return re.findall(r'data-plan-id="(\d*)"', list_plans_request.text)
+    return re.findall(r'data-plan-id="(\d*)"', list_timetables_request.text)
 
-def copy_plan (plan_id: int, cookies):
-    """Creates a copy of a plan."""
+def copy_timetable (timetable_id: int, cookies):
+    """Creates a copy of a timetable."""
     requests.get(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/skopiuj', 'plan_id': plan_id},
+        params={'_action': 'home/plany/skopiuj', 'plan_id': timetable_id},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
 
-def duplicate_plan (plan_id: int, num: int, name: str, cookies) -> list[int]:
-    """Duplicates the plan with given plan_id num times, numbers the duplicates
+def duplicate_timetable (timetable_id: int, num: int, name: str, cookies) -> list[int]:
+    """Duplicates the timetable with given timetable_id num times, numbers the duplicates
     and returns their ids."""
-    previous_plan_ids: set[int] = set(get_all_plan_ids(cookies))
+    previous_timetables_ids: set[int] = set(get_all_timetables_ids(cookies))
     for _ in range (num):
-        copy_plan(plan_id, cookies)
-    # get all plans (now including the copies)
-    current_plan_ids: list[int] = get_all_plan_ids(cookies)
+        copy_timetable(timetable_id, cookies)
+    # get all timetables (now including the copies)
+    current_timetables_ids: list[int] = get_all_timetables_ids(cookies)
     # ids of the copies
-    new_plan_ids = [plan_id for plan_id in current_plan_ids if plan_id not in previous_plan_ids]
+    new_timetables_ids = [timetable_id for timetable_id in current_timetables_ids
+                          if timetable_id not in previous_timetables_ids]
     # rename the copies
-    for current_index, changed_plan_id in enumerate(new_plan_ids):
-        rename_plan(changed_plan_id, name + ' ' + str(current_index), cookies)
-        print ('duplicated plan ', current_index)
+    for current_index, changed_timetable_id in enumerate(new_timetables_ids):
+        rename_timetable(changed_timetable_id, name + ' ' + str(current_index), cookies)
+        print ('duplicated timetable ', current_index)
 
-    return new_plan_ids
+    return new_timetables_ids
 
 ODD_DAYS = 1
 EVEN_DAYS = 2
@@ -205,11 +206,11 @@ def get_entry_data (entry: bs4.element.Tag):
     time_match = typing.cast(re.Match[str], re.search(r'(\d*):(\d*) - (\d*):(\d*)', dates))
 
     data = {
-        'type': name_match.group(1),
+        'classtype': name_match.group(1),
         'group_num': name_match.group(2),
         'day': get_weekday_polish(dates),
         'parity': parity_to_int_polish(get_parity_polish(dates)),
-        'subject': entry['name-id'],
+        'course': entry['name-id'],
         'time_from': transform_time (time_match.group(1), time_match.group(2)),
         'time_to': transform_time (time_match.group(3), time_match.group(4))
     }
@@ -247,29 +248,29 @@ def do_hours_collide (l: HourEntry, r: HourEntry) -> bool:
 @dataclass
 class GroupEntry:
     """Class representing a class group.
-    If multiple groups have the same properties (subject, entry type, hours),
+    If multiple groups have the same properties (course, classtype, hours),
     they might be grouped into a single GroupEntry with their numbers in group_nums."""
 
     group_nums: list[str] = field(default_factory=list)
-    subject: str = ""
-    entry_type: str = ""
+    course: str = ""
+    classtype: str = ""
     hours: set[HourEntry] = field(default_factory=set)
 
     def __str__ (self):
         return ('group: ' + str(self.group_nums) +
-                ' from ' + self.subject + ' ' + self.entry_type + '\n' +
+                ' from ' + self.course + ' ' + self.classtype + '\n' +
                 '\n'.join(str(hour) for hour in self.hours))
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     """Checks if two GroupEntries overlap in time."""
     return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
 
-def evaluate_plan_time (plan: list[GroupEntry], _: pathlib.Path) -> int:
-    """Returns plan badness with regard to the days' length, their start and end."""
+def evaluate_timetable_time (timetable: list[GroupEntry], _: pathlib.Path) -> int:
+    """Returns timetable badness with regard to the days' length, their start and end."""
     # mapping hours of all classes taking place at a given day to that day
     map_days_to_hours: dict[tuple[str, int], list[HourEntry]] = defaultdict(list[HourEntry])
 
-    for entry in plan:
+    for entry in timetable:
         for hour in entry.hours:
             if hour.parity & EVEN_DAYS:
                 map_days_to_hours[(hour.day, EVEN_DAYS)].append(hour)
@@ -296,9 +297,10 @@ def evaluate_plan_time (plan: list[GroupEntry], _: pathlib.Path) -> int:
         if l[1] - l[0] > 9:
             res += 30
     return res
+
 custom_evaluate_data = {}
-def evaluate_plan_custom (plan: list[GroupEntry], path: pathlib.Path) -> int:
-    """Returns plan badness as a sum of badnesses of each group in it."""
+def evaluate_timetable_custom (timetable: list[GroupEntry], path: pathlib.Path) -> int:
+    """Returns timetable badness as a sum of badnesses of each group in it."""
     if path in custom_evaluate_data:
         data = custom_evaluate_data[path]
     else:
@@ -306,8 +308,8 @@ def evaluate_plan_custom (plan: list[GroupEntry], path: pathlib.Path) -> int:
             data = json.load(data_file)
             custom_evaluate_data[path] = data
     result: int = 0
-    for group in plan:
-        values_for_groups = [int(data[group.subject][group.entry_type][single_group])
+    for group in timetable:
+        values_for_groups = [int(data[group.course][group.classtype][single_group])
                              for single_group in group.group_nums]
         result += min(values_for_groups)
 
@@ -315,8 +317,8 @@ def evaluate_plan_custom (plan: list[GroupEntry], path: pathlib.Path) -> int:
 
 
 EVALUATORS = {
-    'time': evaluate_plan_time,
-    'custom': evaluate_plan_custom
+    'time': evaluate_timetable_time,
+    'custom': evaluate_timetable_custom
 }
 
 CLASSTYPES = {
@@ -332,20 +334,20 @@ def get_classtype_polish(string: str) -> str:
         return CLASSTYPES[class_type_match.group(0)]
     return "Unknown classtype"
 
-def shatter_course(plan_id: int, n: int, groups: dict[str, GroupEntry], cookies):
+def split_course(timetable_id: int, n: int, groups: dict[str, GroupEntry], cookies):
     """Split n-th unsplit course entry in the timetable, keeping only given groups.
     Groups must be sorted by classtype into lists."""
     # groups: [classtype, GroupEntry]
-    shatter_list_request = requests.get(
+    split_list_request = requests.get(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id, 'nr': n},
+        params={'_action': 'home/plany/rozbijWpis', 'plan_id': timetable_id, 'nr': n},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
-    shatter_list_soup = BeautifulSoup(shatter_list_request.content, 'html.parser')
+    split_list_soup = BeautifulSoup(split_list_request.content, 'html.parser')
     # remaining groups
     remaining_indices: list[int] = []
-    for current_index, tr in enumerate(shatter_list_soup.find_all('tr')):
+    for current_index, tr in enumerate(split_list_soup.find_all('tr')):
         tr_spans: list[bs4.Tag] = tr.find_all('span')
         if len(tr_spans) < 2:
             continue
@@ -362,49 +364,49 @@ def shatter_course(plan_id: int, n: int, groups: dict[str, GroupEntry], cookies)
 
     form_dict: dict[str, str] = {
         '_action': 'home/plany/rozbijWpis',
-        'plan_id': str(plan_id),
+        'plan_id': str(timetable_id),
         'nr': str(n),
         'zapisz': '1',
-        'csrftoken': get_csrf_token(shatter_list_request.text)
+        'csrftoken': get_csrf_token(split_list_request.text)
     }
     form_dict.update({'entry' + str(on_index): 'on' for on_index in remaining_indices})
 
     payload, boundary = create_form_str(form_dict)
     requests.post(
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/rozbijWpis', 'plan_id': plan_id},
+        params={'_action': 'home/plany/rozbijWpis', 'plan_id': timetable_id},
         data=payload,
         headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
 
-def shatter_plan (plan_id: int, groups: dict[tuple[str, str], GroupEntry], cookies):
-    """Create a schedule containing given groups
-    by splitting a preexisting schedule given by plan_id."""
+def split_timetable (timetable_id: int, groups: dict[tuple[str, str], GroupEntry], cookies):
+    """Create a timetable containing given groups
+    by splitting a preexisting timetable given by timetable_id."""
     # groups: [[course, classtype], groups]
 
     edit_request = requests.get (
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/edytuj', 'plan_id': plan_id},
+        params={'_action': 'home/plany/edytuj', 'plan_id': timetable_id},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
     edit_soup = BeautifulSoup (edit_request.content, 'html.parser')
 
-    # course units appearing in the plan
-    shattered_courses: list[str] = []
+    # course units appearing in the timetable
+    split_courses: list[str] = []
     for tr in edit_soup.find_all ('tr'):
         if span := tr.find('span'):
-            shattered_courses.extend(span.contents)
+            split_courses.extend(span.contents)
 
     groups_to_keep_by_course = defaultdict(lambda: defaultdict(GroupEntry))
     for (course, classtype), group in groups.items():
         groups_to_keep_by_course[course][classtype] = group
 
-    # iterating through all the courses in the plan
-    for course in shattered_courses:
-        shatter_course(plan_id, 0, groups_to_keep_by_course[course], cookies)
+    # iterating through all the courses in the timetable
+    for course in split_courses:
+        split_course(timetable_id, 0, groups_to_keep_by_course[course], cookies)
 
 def merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
     """Returns list with groups merged by their hours (all group numbers are in group_nums)."""
@@ -418,25 +420,26 @@ def merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
             merged_groups.append(group)
     return merged_groups
 
-def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
-    """Returns all groups appearing in the plan,
+def get_groups_from_timetable (timetable_id: int, cookies) -> list[list[GroupEntry]]:
+    """Returns all groups appearing in the timetable,
     grouped in lists by their course units."""
-    plan_page = requests.get (
+    timetable_page = requests.get (
         USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/pokaz', 'plan_id': plan_id, 'plan_division': 'semester'},
+        params={'_action': 'home/plany/pokaz',
+                'plan_id': timetable_id, 'plan_division': 'semester'},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
 
-    print ('downloaded plan')
+    print ('downloaded timetable')
 
-    whole_plan_soup = BeautifulSoup (plan_page.content, 'html.parser')
-    all_timetable_entries = whole_plan_soup.find_all ('timetable-entry')
+    whole_timetable_soup = BeautifulSoup (timetable_page.content, 'html.parser')
+    all_timetable_entries = whole_timetable_soup.find_all ('timetable-entry')
     all_timetable_entries_data = [get_entry_data(i) for i in all_timetable_entries]
 
     tt_entries_by_course_unit = defaultdict(list)
     for data in all_timetable_entries_data:
-        tt_entries_by_course_unit[(data['subject'], data['type'])].append(data)
+        tt_entries_by_course_unit[(data['course'], data['classtype'])].append(data)
 
     # all groups, grouped in lists by their course units
     all_groups: list[list[GroupEntry]] = []
@@ -450,8 +453,8 @@ def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
             if group_num not in current_groups:
                 current_groups[group_num] = GroupEntry(
                     group_nums = [group_num],
-                    subject = course_unit[0],
-                    entry_type = course_unit[1]
+                    course = course_unit[0],
+                    classtype = course_unit[1]
                 )
 
             current_hour = HourEntry(
@@ -466,34 +469,36 @@ def get_groups_from_plan (plan_id: int, cookies) -> list[list[GroupEntry]]:
 
     return all_groups
 
-def list_possible_plans (all_course_units: list[list[GroupEntry]]):
-    """Returns a list of all plans with non-colliding groups."""
-    current_plans: list[list[GroupEntry]] = [[]]
+def list_possible_timetables (all_course_units: list[list[GroupEntry]]):
+    """Returns a list of all timetables with non-colliding groups."""
+    current_timetables: list[list[GroupEntry]] = [[]]
     for course_unit in all_course_units:
         # course unit is a class type (like WYK/CW) associated with a course,
         # that consists of groups
-        new_plans: list[list[GroupEntry]] = []
-        for curr_plan in current_plans:
+        new_timetables: list[list[GroupEntry]] = []
+        for curr_timetable in current_timetables:
             for new_group in course_unit:
-                if not any(do_groups_collide(new_group, curr_group) for curr_group in curr_plan):
-                    new_plans.append(curr_plan.copy() + [new_group])
-        current_plans = new_plans
+                if not any(do_groups_collide(new_group, curr_group)
+                           for curr_group in curr_timetable):
+                    new_timetables.append(curr_timetable.copy() + [new_group])
+        current_timetables = new_timetables
 
-    print(str(len(current_plans)) + " possible plans found")
-    return current_plans
+    print(str(len(current_timetables)) + " possible timetables found")
+    return current_timetables
 
 @dataclass
 class PlannerUnit:
     """Class representing a timetable optimizer."""
     name: str = 'unnamed'
     evaluator: str = 'time'
-    # all attended lessons
-    lessons: set[str] = field(default_factory=set)
-    # all groups of attended lessons
+    # all attended courses
+    courses: set[str] = field(default_factory=set)
+    # all groups from all attended courses, sorted by course,
+    # then by course unit they belong to
     groups: list[list[GroupEntry]] = field(default_factory=list)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
 
-    template_plan_id: int = -1
+    template_timetable_id: int = -1
 
     def __str__ (self):
         return 'name: ' + self.name + ' evaluator: ' + self.evaluator
@@ -514,34 +519,36 @@ def read_personal_config(path: pathlib.Path) -> (set[str], str):
     raise RuntimeError('Failed to read evaluator function')
 
 def init_planner_unit_from_config(path: pathlib.Path,
-                                  session_hash: str, dydactic_cycle: str,cookies) -> PlannerUnit:
+                                  session_hash: str, dydactic_cycle: str, cookies) -> PlannerUnit:
     """Creates a planner unit from config files."""
     courses, evaluator = read_personal_config(path)
-    template_plan_name = 'automatic_template_' + path.name + '_' + session_hash
-    # create plan with all courses
-    plan_id: int = create_plan(template_plan_name, cookies)
+    template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
+    # create a timetable with all courses
+    timetable_id: int = create_timetable(template_timetable_name, cookies)
     for course in courses:
-        add_course_to_plan(plan_id, course, dydactic_cycle, cookies)
+        add_course_to_timetable(timetable_id, course, dydactic_cycle, cookies)
 
     return PlannerUnit(
         name = path.name,
-        lessons = courses,
+        courses = courses,
         evaluator = evaluator,
-        template_plan_id = plan_id,
-        groups = get_groups_from_plan(plan_id, cookies),
+        template_timetable_id= timetable_id,
+        groups = get_groups_from_timetable(timetable_id, cookies),
         config_path = path
     )
 
 def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[(list[GroupEntry], int)]:
     """Returns top n timetables with scores for a given planner unit."""
-    possible_plans = list_possible_plans(planner_unit.groups)
-    plans_with_values = [(plan, EVALUATORS[planner_unit.evaluator](plan, planner_unit.config_path))
-                         for plan in possible_plans]
-    # sort plans by badness, return top n
-    return sorted(plans_with_values, key=lambda x: x[1])[:n]
+    possible_timetables = list_possible_timetables(planner_unit.groups)
+    timetables_with_values = [
+        (timetable, EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path))
+        for timetable in possible_timetables
+    ]
+    # sort timetables by badness, return top n
+    return sorted(timetables_with_values, key=lambda x: x[1])[:n]
 
 def main() -> int:
-    """Calculates the best possible plans according to config and creates them in USOS."""
+    """Calculates the best possible timetables according to config and creates them in USOS."""
     dydactic_cycle: str = read_dydactic_cycle()
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
@@ -567,26 +574,25 @@ def main() -> int:
         all_planner_units.append(current_unit)
 
     for current_unit in all_planner_units:
-        top_timetables = get_top_timetables(current_unit, NUM_PLANS)
-
-        # ids of copies of the original plan
-        plan_instance_ids: list[int] = (
-            duplicate_plan(
-                current_unit.template_plan_id,
+        top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
+        # ids of copies of the original timetable
+        timetable_instance_ids: list[int] = (
+            duplicate_timetable(
+                current_unit.template_timetable_id,
                 len(top_timetables),
                 'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
                 php_session_cookies
             )
         )
 
-        # recreate the top plans in USOS
-        for (timetable, _), plan_id in zip(top_timetables, plan_instance_ids):
+        # recreate the top timetables in USOS
+        for (timetable, _), timetable_id in zip(top_timetables, timetable_instance_ids):
 
             course_unit_to_groups: dict[tuple[str, str], GroupEntry] = {
-                (group.subject, group.entry_type) : group for group in timetable
+                (group.course, group.classtype) : group for group in timetable
             }
-            shatter_plan (plan_id, course_unit_to_groups, php_session_cookies)
-            print ('shattered plan')
+            split_timetable (timetable_id, course_unit_to_groups, php_session_cookies)
+            print ('shattered timetable')
     return 0
 
 if __name__ == '__main__':

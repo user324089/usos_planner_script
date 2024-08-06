@@ -11,7 +11,7 @@ DEFAULT_TIMEOUT = 10
 CODE_BOX_LEN = 20
 NAME_BOX_LEN = 100
 
-def get_subjects_response (begin: int, count: int) -> requests.Response:
+def get_courses_response (begin: int, count: int) -> requests.Response:
     """Get courses from begin to begin+count from the list of all courses."""
     params = {
         'forward': '',
@@ -37,21 +37,21 @@ def get_subjects_response (begin: int, count: int) -> requests.Response:
         timeout=DEFAULT_TIMEOUT
     )
 
-def download_all_subjects ():
+def download_all_courses ():
     """Download all courses visible in USOS course search."""
-    count_response = get_subjects_response (0,1)
+    count_response = get_courses_response (0, 1)
     print ('Has count response')
-    num_subjects_match = re.search (r'elements-count=(\d*)', count_response.text)
+    num_courses_match = re.search (r'elements-count=(\d*)', count_response.text)
 
-    if num_subjects_match is None:
-        raise RuntimeError('Error reading number of subjects')
+    if num_courses_match is None:
+        raise RuntimeError('Error reading number of courses')
 
-    num_subjects: int = int(num_subjects_match[1])
+    num_courses: int = int(num_courses_match[1])
 
     codes_with_names: list[tuple[str, str]] = []
 
-    for page_num in range (math.ceil(num_subjects/ELEMS_PER_PAGE)):
-        r = get_subjects_response (page_num*ELEMS_PER_PAGE, ELEMS_PER_PAGE)
+    for page_num in range (math.ceil(num_courses/ELEMS_PER_PAGE)):
+        r = get_courses_response (page_num * ELEMS_PER_PAGE, ELEMS_PER_PAGE)
         soup = BeautifulSoup (r.content, 'html.parser')
 
         for tr in soup.find_all('tr', ['odd_row', 'even_row']):
@@ -60,7 +60,7 @@ def download_all_subjects ():
             code_elem, name_elem = elems[:2]
             code_matches = re.search (r'\S+', code_elem.text)
             if code_matches is None:
-                raise RuntimeError('Error reading subject code')
+                raise RuntimeError('Error reading course code')
             code: str = code_matches[0]
             name: str = name_elem.find_all('a')[-1].text
             codes_with_names.append ((code, name))
@@ -73,20 +73,20 @@ def main() -> int:
     """Search for courses matching the provided regex."""
     codes_with_names: list[tuple[str, str]]
     try:
-        with open ('subjects.json', encoding="utf-8") as subjects_file:
-            codes_with_names = json.load(subjects_file)
+        with open ('courses.json', encoding="utf-8") as courses_file:
+            codes_with_names = json.load(courses_file)
     except FileNotFoundError:
         try:
-            codes_with_names = download_all_subjects()
+            codes_with_names = download_all_courses()
         except KeyboardInterrupt:
             return 1
 
-        with open("subjects.json", 'w', encoding="utf-8") as f:
+        with open('courses.json', 'w', encoding="utf-8") as f:
             json.dump(codes_with_names, f, indent=2)
 
     try:
         while True:
-            pattern: str = input('Please enter regular expression to search subjects:')
+            pattern: str = input('Please enter regular expression to search for courses:')
             try:
                 for (code, name) in codes_with_names:
                     if re.match (pattern, name):
