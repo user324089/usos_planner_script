@@ -2,3 +2,4 @@ config
 */codes
 */cycle
 subjects.json
+*/__pycache__
