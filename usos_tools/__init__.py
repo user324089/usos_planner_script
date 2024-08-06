@@ -108,16 +108,6 @@ def rename_timetable (timetable_id: int, new_name: str, cookies):
         timeout=DEFAULT_TIMEOUT
     )
 
-def get_all_timetables_ids (cookies) -> list[int]:
-    """Returns ids of all user's timetables."""
-    list_timetables_request = requests.get (
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/index'},
-        cookies=cookies,
-        timeout=DEFAULT_TIMEOUT
-    )
-    return re.findall(r'data-plan-id="(\d*)"', list_timetables_request.text)
-
 def copy_timetable (timetable_id: int, cookies):
     """Creates a copy of a timetable."""
     requests.get(
@@ -130,11 +120,11 @@ def copy_timetable (timetable_id: int, cookies):
 def duplicate_timetable (timetable_id: int, num: int, name: str, cookies) -> list[int]:
     """Duplicates the timetable with given timetable_id num times, numbers the duplicates
     and returns their ids."""
-    previous_timetables_ids: set[int] = set(get_all_timetables_ids(cookies))
+    previous_timetables_ids: set[int] = set(timetable_id for _, timetable_id in get_all_timetables(cookies))
     for _ in range (num):
         copy_timetable(timetable_id, cookies)
     # get all timetables (now including the copies)
-    current_timetables_ids: list[int] = get_all_timetables_ids(cookies)
+    current_timetables_ids: list[int] = [timetable_id for _, timetable_id in get_all_timetables (cookies)]
     # ids of the copies
     new_timetables_ids = [timetable_id for timetable_id in current_timetables_ids
                           if timetable_id not in previous_timetables_ids]
@@ -400,3 +390,19 @@ def get_groups_from_timetable (timetable_id: int, cookies) -> list[list[GroupEnt
         all_groups.append(merge_groups_by_time(list(current_groups.values())))
 
     return all_groups
+
+def get_all_timetables (cookies) -> list[tuple[str, int]]:
+    r = requests.get (USOSWEB_KONTROLER, params={'_action': 'home/plany/index'}, cookies=cookies)
+    soup = BeautifulSoup (r.content, 'html.parser')
+    timetables: list [tuple[str, int]] = []
+    for tr in soup.find_all ('tr')[:-1]:
+        td: bs4.element.Tag = tr.find ('td')
+        timetable_name = td.text.strip()
+        dropdown: bs4.element.Tag = tr.find ('dropdown-menu')
+        dropdown_data_timetable_id: str | list[str] = dropdown['data-plan-id']
+        dropdown_timetable_id = int(str(dropdown_data_timetable_id))
+        timetables.append ((timetable_name, dropdown_timetable_id))
+    return timetables
+
+def delete_timetable (timetable_id: int, cookies):
+    requests.get (USOSWEB_KONTROLER, params={'_action': 'home/plany/usun', 'plan_id': timetable_id}, cookies=cookies)
