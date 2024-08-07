@@ -12,8 +12,9 @@ import requests
 import usos_tools.login
 import usos_tools.timetables as tt
 from usos_tools.utils import EVEN_DAYS, ODD_DAYS
+import math
 
-NUM_TIMETABLES = 3
+NUM_TIMETABLES = 1
 USOSAPI_TIMEOUT = 5
 
 COURSE_TERMS: dict[str, str] = {}
@@ -139,6 +140,8 @@ class PlannerUnit:
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = field(default_factory=dict)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
 
+    ranked_plans: list[tuple[list[tt.GroupEntry], float]] = field(default_factory=list)
+
     template_timetable_id: int = -1
 
     def __str__ (self):
@@ -185,15 +188,34 @@ def init_planner_unit_from_config(path: pathlib.Path,
         config_path = path
     )
 
-def get_top_timetables(planner_unit: PlannerUnit, n: int) -> list[tuple[list[tt.GroupEntry], int]]:
+def get_top_timetables(planner_unit: PlannerUnit, n: int | None = None) -> list[tuple[list[tt.GroupEntry], float]]:
     """Returns top n timetables with scores for a given planner unit."""
     possible_timetables = list_possible_timetables(planner_unit.groups)
-    timetables_with_values = [
-        (timetable, EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path))
+
+    if len(possible_timetables) == 0:
+        return []
+
+    best_plan_value = min (EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path) for timetable in possible_timetables)
+    timetables_with_values: list[tuple[list[tt.GroupEntry], float]] = [
+        (timetable, EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path) / best_plan_value)
         for timetable in possible_timetables
     ]
     # sort timetables by badness, return top n
-    return sorted(timetables_with_values, key=lambda x: x[1])[:n]
+
+    if n is None:
+        return sorted(timetables_with_values, key=lambda x: x[1])
+    else:
+        return sorted(timetables_with_values, key=lambda x: x[1])[:n]
+
+def groups_fit (subset: list[tt.GroupEntry], superset: list[tt.GroupEntry]) -> bool:
+    mp: dict[tuple[str, str], tt.GroupEntry] = {}
+    for superset_entry in superset:
+        mp[(superset_entry.course, superset_entry.classtype)] = superset_entry
+    for subset_entry in subset:
+        key: tuple[str, str] = (subset_entry.course, subset_entry.classtype)
+        if key in mp and mp[key] != subset_entry:
+            return False
+    return True
 
 def main() -> int:
     """Calculates the best possible timetables according to config and creates them in USOS."""
@@ -228,8 +250,10 @@ def main() -> int:
     personal_configs = [directory for directory
                         in config_directory.iterdir() if directory.is_dir()]
 
+    map_course_to_number_of_occurences: dict[str, int] = defaultdict(int)
+
     for personal_config in personal_configs:
-        current_unit = init_planner_unit_from_config(
+        current_unit: PlannerUnit = init_planner_unit_from_config(
             personal_config,
             current_hash,
             dydactic_cycle,
@@ -237,11 +261,66 @@ def main() -> int:
         )
         print(current_unit)
         all_planner_units.append(current_unit)
+        for course_name in current_unit.courses:
+            map_course_to_number_of_occurences[course_name] += 1
+
+    duplicated_courses = [course_name 
+                          for course_name, num_occurences in map_course_to_number_of_occurences.items()
+                          if num_occurences > 1]
+
+    with tt.tmpTimetable(php_session_cookies) as duplicated_timetable:
+        for duplicated_course in duplicated_courses:
+            tt.add_course_to_timetable (duplicated_timetable.timetable_id, duplicated_course, dydactic_cycle, php_session_cookies)
+        duplicate_groups = tt.get_groups_from_timetable (duplicated_timetable.timetable_id, True, php_session_cookies)
+        duplicate_timetables = list_possible_timetables (duplicate_groups)
+
+    for current_unit in all_planner_units:
+        current_unit.ranked_plans = get_top_timetables(current_unit)
+
+    best_picked_plans: list[list[int]] = []
+    best_score: float = math.inf
+
+    for duplicate_timetable in duplicate_timetables:
+
+        I_picked_plans: list[list[int]] = []
+        I_score: float = 0
+
+        for current_unit in all_planner_units:
+
+            II_picked_plans: list[int] = []
+            # loop finds a plan which fits the duplicates
+            II_score: float = 0
+
+            for index, (unit_timetable, score) in enumerate(current_unit.ranked_plans):
+                if groups_fit (duplicate_timetable, unit_timetable):
+
+                    II_score += score
+                    II_picked_plans.append (index)
+
+                    if len(II_picked_plans) == NUM_TIMETABLES:
+                        break
+
+            I_picked_plans.append (II_picked_plans)
+
+            I_score += II_score ** 3
+
+        if any (len(try_picked_plan) < NUM_TIMETABLES for try_picked_plan in I_picked_plans):
+            continue
+
+        if (I_score < best_score):
+            best_score = I_score
+            best_picked_plans = I_picked_plans
+
+
+    if len(best_picked_plans) == 0:
+        print ('failed to find a plan system')
+        return 1
 
     # get course ids
 
-    for current_unit in all_planner_units:
-        top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
+    for index, current_unit in enumerate(all_planner_units):
+        #top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
+        top_timetables = [current_unit.ranked_plans[i] for i in best_picked_plans[index][:NUM_TIMETABLES]]
         # ids of copies of the original timetable
         timetable_instance_ids: list[int] = (
             tt.duplicate_timetable(

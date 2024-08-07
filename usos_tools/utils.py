@@ -3,7 +3,7 @@ import re
 import random
 
 USOSWEB_KONTROLER = 'https://usosweb.mimuw.edu.pl/kontroler.php'
-DEFAULT_TIMEOUT = 10
+DEFAULT_TIMEOUT = 20
 
 ODD_DAYS = 1
 EVEN_DAYS = 2

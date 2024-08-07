@@ -160,7 +160,7 @@ class GroupEntry:
     If multiple groups have the same properties (course, classtype, hours),
     they might be grouped into a single GroupEntry with their numbers in group_nums."""
 
-    group_nums: list[str] = field(default_factory=list)
+    group_nums: set[str] = field(default_factory=set)
     course: str = ""
     classtype: str = ""
     hours: set[HourEntry] = field(default_factory=set)
@@ -169,6 +169,10 @@ class GroupEntry:
         return ('group: ' + str(self.group_nums) +
                 ' from ' + self.course + ' ' + self.classtype + '\n' +
                 '\n'.join(str(hour) for hour in self.hours))
+    def __hash__ (self):
+        return hash ((self.course, self.classtype))
+    def __eq__ (self, r):
+        return self.course == r.course and self.classtype == r.classtype and self.group_nums == r.group_nums
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     """Checks if two GroupEntries overlap in time."""
@@ -255,7 +259,7 @@ def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
     for group in groups:
         for merged_group in merged_groups:
             if group.hours == merged_group.hours:
-                merged_group.group_nums.extend(group.group_nums)
+                merged_group.group_nums.update(group.group_nums)
                 break
         else:
             merged_groups.append(group)
@@ -296,7 +300,7 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
             group_num = timetable_entry['group_num']
             if group_num not in current_groups:
                 current_groups[group_num] = GroupEntry(
-                    group_nums = [group_num],
+                    group_nums = {group_num},
                     course = course_name,
                     classtype = course_type
                 )
@@ -344,3 +348,17 @@ def delete_timetable (timetable_id: int, cookies):
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
+
+class tmpTimetable:
+
+    timetable_id: int
+
+    def __init__ (self, cookies):
+        self.cookies = cookies
+
+    def __enter__ (self):
+        self.timetable_id = create_timetable ('', self.cookies)
+        return self
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        # TODO handle exceptions
+        delete_timetable (self.timetable_id, self.cookies)
