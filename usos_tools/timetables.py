@@ -262,7 +262,7 @@ def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
     return merged_groups
 
 def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
-                               cookies) -> list[list[GroupEntry]]:
+                               cookies)  -> dict[str, dict[str, list[GroupEntry]]]:
     """Returns all groups appearing in the timetable,
     grouped in lists by their course units."""
     timetable_page = requests.get (
@@ -284,10 +284,12 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
         tt_entries_by_course_unit[(data['course'], data['classtype'])].append(data)
 
     # all groups, grouped in lists by their course units
-    all_groups: list[list[GroupEntry]] = []
+    all_groups: dict[str, dict[str, list[GroupEntry]]] = defaultdict(lambda: defaultdict(list))
 
     for course_unit, timetable_entries in tt_entries_by_course_unit.items():
         # [group number : GroupEntry] - groups belonging to the current course unit
+        course_name = course_unit[0]
+        course_type = course_unit[1]
         current_groups: dict [str, GroupEntry] = {}
 
         for timetable_entry in timetable_entries:
@@ -295,8 +297,8 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
             if group_num not in current_groups:
                 current_groups[group_num] = GroupEntry(
                     group_nums = [group_num],
-                    course = course_unit[0],
-                    classtype = course_unit[1]
+                    course = course_name,
+                    classtype = course_type
                 )
 
             current_hour = HourEntry(
@@ -310,7 +312,8 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
         group_list = list(current_groups.values())
         if merge_groups:
             group_list = _merge_groups_by_time(group_list)
-        all_groups.append(group_list)
+
+        all_groups[course_name][course_type] = group_list
 
     return all_groups
 

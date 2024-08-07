@@ -108,19 +108,20 @@ EVALUATORS = {
     'custom': evaluate_timetable_custom
 }
 
-def list_possible_timetables (all_course_units: list[list[tt.GroupEntry]]):
+def list_possible_timetables (all_course_units: dict[str, dict[str, list[tt.GroupEntry]]]):
     """Returns a list of all timetables with non-colliding groups."""
     current_timetables: list[list[tt.GroupEntry]] = [[]]
-    for course_unit in all_course_units:
+    for groups_with_same_name in all_course_units.values():
         # course unit is a class type (like WYK/CW) associated with a course,
         # that consists of groups
-        new_timetables: list[list[tt.GroupEntry]] = []
-        for curr_timetable in current_timetables:
-            for new_group in course_unit:
-                if not any(tt.do_groups_collide(new_group, curr_group)
-                           for curr_group in curr_timetable):
-                    new_timetables.append(curr_timetable.copy() + [new_group])
-        current_timetables = new_timetables
+        for groups in groups_with_same_name.values():
+            new_timetables: list[list[tt.GroupEntry]] = []
+            for curr_timetable in current_timetables:
+                for new_group in groups:
+                    if not any(tt.do_groups_collide(new_group, curr_group)
+                               for curr_group in curr_timetable):
+                        new_timetables.append(curr_timetable.copy() + [new_group])
+            current_timetables = new_timetables
 
     print(str(len(current_timetables)) + " possible timetables found")
     return current_timetables
@@ -134,7 +135,8 @@ class PlannerUnit:
     courses: set[str] = field(default_factory=set)
     # all groups from all attended courses, sorted by course,
     # then by course unit they belong to
-    groups: list[list[tt.GroupEntry]] = field(default_factory=list)
+    # map from course code and type to groups
+    groups: dict[str, dict[str, list[tt.GroupEntry]]] = field(default_factory=dict)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
 
     template_timetable_id: int = -1
