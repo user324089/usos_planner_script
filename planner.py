@@ -8,11 +8,41 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 import json
 import argparse
+import requests
 import usos_tools.login
 import usos_tools.timetables as tt
 from usos_tools.utils import EVEN_DAYS, ODD_DAYS
 
 NUM_TIMETABLES = 3
+USOSAPI_TIMEOUT = 5
+
+COURSE_TERMS: dict[str, str] = {}
+
+def get_course_term(course: str, term: str) -> str:
+    """Returns the course term that is the best match for the given term."""
+    response = requests.get(
+        "https://usosapps.uw.edu.pl/services/courses/course",
+        params={"course_id": course, "fields": "terms"},
+        timeout=USOSAPI_TIMEOUT
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    best_match = None
+    year = term[:4]
+
+    for term_data in data["terms"]:
+        course_term = term_data["id"]
+
+        if course_term == term:
+            return course_term
+        if course_term == year:
+            best_match = course_term
+
+    if best_match is None:
+        raise RuntimeError(f"Failed to find matching term for course {course}.")
+    return best_match
+
 
 def read_words_from_file (filename: str) -> list[str]:
     """Returns a list of all words in the file."""
@@ -131,12 +161,18 @@ def init_planner_unit_from_config(path: pathlib.Path,
                                   session_hash: str, dydactic_cycle: str, cookies) -> PlannerUnit:
     """Creates a planner unit from config files."""
     courses, evaluator = read_personal_config(path)
+
+    # get terms for courses
+    for course in courses:
+        if course not in COURSE_TERMS:
+            COURSE_TERMS[course] = get_course_term(course, dydactic_cycle)
+
     merge_groups = evaluator != 'custom'
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
     # create a timetable with all courses
     timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
     for course in courses:
-        tt.add_course_to_timetable(timetable_id, course, dydactic_cycle, cookies)
+        tt.add_course_to_timetable(timetable_id, course, COURSE_TERMS[course], cookies)
 
     return PlannerUnit(
         name = path.name,
@@ -199,6 +235,8 @@ def main() -> int:
         )
         print(current_unit)
         all_planner_units.append(current_unit)
+
+    # get course ids
 
     for current_unit in all_planner_units:
         top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
