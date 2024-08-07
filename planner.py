@@ -250,6 +250,8 @@ def main() -> int:
     personal_configs = [directory for directory
                         in config_directory.iterdir() if directory.is_dir()]
 
+    # counts the number of occurrences of each subject. is used to find subjects
+    # that are attended by more than one person
     map_course_to_number_of_occurences: dict[str, int] = defaultdict(int)
 
     for personal_config in personal_configs:
@@ -264,33 +266,42 @@ def main() -> int:
         for course_name in current_unit.courses:
             map_course_to_number_of_occurences[course_name] += 1
 
-    duplicated_courses = [course_name 
+    # is a list of course names that are attended by more than one person
+    duplicated_courses = [course_name
                           for course_name, num_occurences in map_course_to_number_of_occurences.items()
                           if num_occurences > 1]
 
+    # find all possible timetables with duplicate courses. this approach does not scale,
+    # but for at most 3 people it is enough
     with tt.tmpTimetable(php_session_cookies) as duplicated_timetable:
         for duplicated_course in duplicated_courses:
             tt.add_course_to_timetable (duplicated_timetable.timetable_id, duplicated_course, dydactic_cycle, php_session_cookies)
         duplicate_groups = tt.get_groups_from_timetable (duplicated_timetable.timetable_id, True, php_session_cookies)
         duplicate_timetables = list_possible_timetables (duplicate_groups)
 
+    # rank plans for all people
     for current_unit in all_planner_units:
         current_unit.ranked_plans = get_top_timetables(current_unit)
 
+    #
     best_picked_plans: list[list[int]] = []
+    # best attained combined score
     best_score: float = math.inf
 
     for duplicate_timetable in duplicate_timetables:
 
+        # list of indices of best plans that fit duplicate timetable for all people
         I_picked_plans: list[list[int]] = []
         I_score: float = 0
 
+        # loop finds a plan which fits the duplicates
         for current_unit in all_planner_units:
 
+            # list of indices of best plans that fit duplicate timetable for current person
             II_picked_plans: list[int] = []
-            # loop finds a plan which fits the duplicates
             II_score: float = 0
 
+            # loop over all plans in order from best to worst and remember the best NUM_TIMETABLES ones
             for index, (unit_timetable, score) in enumerate(current_unit.ranked_plans):
                 if groups_fit (duplicate_timetable, unit_timetable):
 
@@ -300,13 +311,16 @@ def main() -> int:
                     if len(II_picked_plans) == NUM_TIMETABLES:
                         break
 
+            # remember plans of current person
             I_picked_plans.append (II_picked_plans)
-
+            # update the all people score by local score
             I_score += II_score ** 3
 
+        # list of plans for any person should have at least NUM_TIMETABLES entries
         if any (len(try_picked_plan) < NUM_TIMETABLES for try_picked_plan in I_picked_plans):
             continue
 
+        # update if set of plans is better
         if (I_score < best_score):
             best_score = I_score
             best_picked_plans = I_picked_plans

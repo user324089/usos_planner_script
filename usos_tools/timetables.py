@@ -349,6 +349,7 @@ def delete_timetable (timetable_id: int, cookies):
         timeout=DEFAULT_TIMEOUT
     )
 
+# is a class for making a temporary timetable. can be used by "with ... as " construction
 class tmpTimetable:
 
     timetable_id: int
