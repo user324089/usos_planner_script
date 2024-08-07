@@ -208,9 +208,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.login:
         login_filename = args.login
-        with open (login_filename, 'r') as login_file:
+        with open (login_filename, 'r', encoding="utf-8") as login_file:
             credentials = login_file.read().split('\n')
-            if (len(credentials) < 2):
+            if len(credentials) < 2:
                 print ('Failed to read credentials')
                 return 1
             username = credentials[0]
