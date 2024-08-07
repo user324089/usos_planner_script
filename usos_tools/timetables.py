@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 import bs4
-from .utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
-from .utils import (_create_form_str, _get_csrf_token, _get_weekday_polish, _get_parity_polish,
-                    _parity_to_int_polish, _get_classtype_polish)
+from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
+from usos_tools.utils import (_create_form_str, _get_csrf_token, _get_weekday_polish,
+                              _get_parity_polish, _parity_to_int_polish, _get_classtype_polish)
 
 
 def add_course_to_timetable(timetable_id: int, course_id: str, dydactic_cycle: str, cookies):
@@ -261,7 +261,8 @@ def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
             merged_groups.append(group)
     return merged_groups
 
-def get_groups_from_timetable (timetable_id: int, cookies) -> list[list[GroupEntry]]:
+def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
+                               cookies) -> list[list[GroupEntry]]:
     """Returns all groups appearing in the timetable,
     grouped in lists by their course units."""
     timetable_page = requests.get (
@@ -306,7 +307,10 @@ def get_groups_from_timetable (timetable_id: int, cookies) -> list[list[GroupEnt
             )
             current_groups[group_num].hours.add(current_hour)
 
-        all_groups.append(_merge_groups_by_time(list(current_groups.values())))
+        group_list = list(current_groups.values())
+        if merge_groups:
+            group_list = _merge_groups_by_time(group_list)
+        all_groups.append(group_list)
 
     return all_groups
 

@@ -131,6 +131,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
                                   session_hash: str, dydactic_cycle: str, cookies) -> PlannerUnit:
     """Creates a planner unit from config files."""
     courses, evaluator = read_personal_config(path)
+    merge_groups = evaluator != 'custom'
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
     # create a timetable with all courses
     timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
@@ -142,7 +143,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
         courses = courses,
         evaluator = evaluator,
         template_timetable_id= timetable_id,
-        groups = tt.get_groups_from_timetable(timetable_id, cookies),
+        groups = tt.get_groups_from_timetable(timetable_id, merge_groups, cookies),
         config_path = path
     )
 
