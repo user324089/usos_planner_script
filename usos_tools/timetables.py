@@ -169,10 +169,14 @@ class GroupEntry:
         return ('group: ' + str(self.group_nums) +
                 ' from ' + self.course + ' ' + self.classtype + '\n' +
                 '\n'.join(str(hour) for hour in self.hours))
+
     def __hash__ (self):
         return hash ((self.course, self.classtype))
+
     def __eq__ (self, r):
-        return self.course == r.course and self.classtype == r.classtype and self.group_nums == r.group_nums
+        return (self.course == r.course and
+                self.classtype == r.classtype and
+                self.group_nums == r.group_nums)
 
 def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
     """Checks if two GroupEntries overlap in time."""
@@ -267,8 +271,10 @@ def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
 
 def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
                                cookies)  -> dict[str, dict[str, list[GroupEntry]]]:
-    """Returns all groups appearing in the timetable,
-    grouped in lists by their course units."""
+    """Returns all groups from the timetable with given id.
+    If merge_groups is True, groups with the same hours are merged.
+    Groups are grouped by course name and classtype. """
+
     timetable_page = requests.get (
         USOSWEB_KONTROLER,
         params={'_action': 'home/plany/pokaz',
@@ -349,17 +355,18 @@ def delete_timetable (timetable_id: int, cookies):
         timeout=DEFAULT_TIMEOUT
     )
 
-# is a class for making a temporary timetable. can be used by "with ... as " construction
-class tmpTimetable:
 
+class TmpTimetable:
+    """Class for creating a temporary timetable. Can be used in a "with ... as" statement."""
     timetable_id: int
 
-    def __init__ (self, cookies):
+    def __init__(self, cookies):
         self.cookies = cookies
 
-    def __enter__ (self):
+    def __enter__(self):
         self.timetable_id = create_timetable ('', self.cookies)
         return self
+
     def __exit__(self, exception_type, exception_value, exception_traceback):
         # TODO handle exceptions
         delete_timetable (self.timetable_id, self.cookies)

@@ -4,15 +4,15 @@ import random
 from getpass import getpass
 import sys
 import pathlib
-from collections import defaultdict
+from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 import json
 import argparse
+import math
 import requests
 import usos_tools.login
 import usos_tools.timetables as tt
 from usos_tools.utils import EVEN_DAYS, ODD_DAYS
-import math
 
 NUM_TIMETABLES = 1
 USOSAPI_TIMEOUT = 5
@@ -140,7 +140,7 @@ class PlannerUnit:
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = field(default_factory=dict)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
 
-    ranked_plans: list[tuple[list[tt.GroupEntry], float]] = field(default_factory=list)
+    ranked_timetables: list[tuple[list[tt.GroupEntry], float]] = field(default_factory=list)
 
     template_timetable_id: int = -1
 
@@ -153,6 +153,7 @@ def read_dydactic_cycle() -> str:
         return words[0]
     raise RuntimeError('Failed to read dydactic cycle')
 
+
 def read_personal_config(path: pathlib.Path) -> tuple[set[str], str]:
     """Returns courses and evaluator specified in personal config directory."""
     courses = set(read_words_from_file(str((path / 'codes').resolve())))
@@ -161,6 +162,7 @@ def read_personal_config(path: pathlib.Path) -> tuple[set[str], str]:
     if len(words) == 1 and ((evaluator := words[0]) in EVALUATORS):
         return courses, evaluator
     raise RuntimeError('Failed to read evaluator function')
+
 
 def init_planner_unit_from_config(path: pathlib.Path,
                                   session_hash: str, dydactic_cycle: str, cookies) -> PlannerUnit:
@@ -188,43 +190,106 @@ def init_planner_unit_from_config(path: pathlib.Path,
         config_path = path
     )
 
-def get_top_timetables(planner_unit: PlannerUnit, n: int | None = None) -> list[tuple[list[tt.GroupEntry], float]]:
+
+def min_normalize (values: list[int]) -> list[float]:
+    """Returns a list of values divided by the minimum value."""
+    if not values:
+        return []
+    min_value = min(values)
+    return [value / min_value for value in values]
+
+
+def get_top_timetables(planner_unit: PlannerUnit, n: int | None = None
+                       ) -> list[tuple[list[tt.GroupEntry], float]]:
     """Returns top n timetables with scores for a given planner unit."""
     possible_timetables = list_possible_timetables(planner_unit.groups)
 
-    if len(possible_timetables) == 0:
-        return []
-
-    best_plan_value = min (EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path) for timetable in possible_timetables)
-    timetables_with_values: list[tuple[list[tt.GroupEntry], float]] = [
-        (timetable, EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path) / best_plan_value)
+    timetable_scores = [
+        EVALUATORS[planner_unit.evaluator](timetable, planner_unit.config_path)
         for timetable in possible_timetables
     ]
-    # sort timetables by badness, return top n
+    timetable_scores = min_normalize(timetable_scores)
+    timetables_with_scores = list(zip(possible_timetables, timetable_scores))
 
+    # sort timetables by badness
+    timetables_with_scores.sort(key=lambda x: x[1])
+
+    # return top n
     if n is None:
-        return sorted(timetables_with_values, key=lambda x: x[1])
-    else:
-        return sorted(timetables_with_values, key=lambda x: x[1])[:n]
+        return timetables_with_scores
+    return timetables_with_scores[:n]
+
 
 def groups_fit (subset: list[tt.GroupEntry], superset: list[tt.GroupEntry]) -> bool:
-    mp: dict[tuple[str, str], tt.GroupEntry] = {}
-    for superset_entry in superset:
-        mp[(superset_entry.course, superset_entry.classtype)] = superset_entry
+    """Returns True if common courses in subset and superset have the same groups."""
+    superset_map: dict[tuple[str, str], tt.GroupEntry]
+    superset_map = {(group.course, group.classtype): group for group in superset}
+
     for subset_entry in subset:
-        key: tuple[str, str] = (subset_entry.course, subset_entry.classtype)
-        if key in mp and mp[key] != subset_entry:
+        subset_key = (subset_entry.course, subset_entry.classtype)
+        if subset_key in superset_map and superset_map[subset_key] != subset_entry:
             return False
     return True
 
-def main() -> int:
-    """Calculates the best possible timetables according to config and creates them in USOS."""
-    dydactic_cycle: str = read_dydactic_cycle()
 
-    current_hash = ''.join(random.choices('ABCDEFGH', k=6))
-    print ('starting run:', current_hash)
+def get_best_fitting_timetables_individual(
+        timetables: list[tuple[list[tt.GroupEntry], float]],
+        timetable_to_fit: list[tt.GroupEntry],
+        n: int | None = None
+) -> tuple[list[int], float]:
+    """Returns indices of the best n timetables that fit the timetable_to_fit
+    and the total score. Timetables MUST BE SORTED by score."""
+    if n is None:
+        n = len(timetables)
+
+    fitting_timetables: list[int] = []
+    total_score: float = 0
+
+    for index, (timetable, score) in enumerate(timetables):
+        if groups_fit(timetable_to_fit, timetable):
+            fitting_timetables.append(index)
+            total_score += score
+            if len(fitting_timetables) == n:
+                break
+    return fitting_timetables, total_score
 
 
+def get_best_fitting_timetables_group(
+        planner_units: list[PlannerUnit],
+        timetable_to_fit: list[tt.GroupEntry],
+        n: int
+) -> tuple[list[list[int]], float]:
+    """Returns a list of the indices of n best fitting timetables
+    for each person and the total score."""
+    best_timetables_per_person: list[list[int]] = []
+    group_score: float = 0
+
+    for planner_unit in planner_units:
+        individual_timetables, individual_score = get_best_fitting_timetables_individual(
+            planner_unit.ranked_timetables,
+            timetable_to_fit,
+            NUM_TIMETABLES
+        )
+        # list of timetables for any person should have at least n entries
+        if len(individual_timetables) < n:
+            return [], math.inf
+        # update the group timetables/score
+        best_timetables_per_person.append(individual_timetables)
+        group_score += individual_score ** 3
+
+    return best_timetables_per_person, group_score
+
+def get_shared_courses (planner_units: list[PlannerUnit]) -> list[str]:
+    """Returns a set of courses that are attended by more than one person."""
+    # count the number of occurrences of each course using Counter
+    course_counter = Counter(
+        course for planner_unit in planner_units for course in planner_unit.courses
+    )
+    return [course for course, count in course_counter.items() if count > 1]
+
+
+def get_login_credentials() -> tuple[str, str]:
+    """Gets login credentials from a file or from the user."""
     parser = argparse.ArgumentParser(description='Usos planner')
     parser.add_argument('-l', '--login', metavar='FILE', help='Usos login data file')
     args = parser.parse_args()
@@ -233,16 +298,23 @@ def main() -> int:
         with open (login_filename, 'r', encoding="utf-8") as login_file:
             credentials = login_file.read().split('\n')
             if len(credentials) < 2:
-                print ('Failed to read credentials')
-                return 1
+                raise RuntimeError('Failed to read credentials')
             username = credentials[0]
             password = credentials[1]
     else:
         username = input('username:')
         password = getpass()
+    return username, password
 
 
-    php_session_cookies = usos_tools.login.log_in_to_usos (username, password)
+def main() -> int:
+    """Calculates the best possible timetables according to config and creates them in USOS."""
+    dydactic_cycle: str = read_dydactic_cycle()
+
+    current_hash = ''.join(random.choices('ABCDEFGH', k=6))
+    print ('starting run:', current_hash)
+
+    php_session_cookies = usos_tools.login.log_in_to_usos(*get_login_credentials())
 
     all_planner_units: list[PlannerUnit] = []
 
@@ -250,11 +322,8 @@ def main() -> int:
     personal_configs = [directory for directory
                         in config_directory.iterdir() if directory.is_dir()]
 
-    # counts the number of occurrences of each subject. is used to find subjects
-    # that are attended by more than one person
-    map_course_to_number_of_occurences: dict[str, int] = defaultdict(int)
-
     for personal_config in personal_configs:
+
         current_unit: PlannerUnit = init_planner_unit_from_config(
             personal_config,
             current_hash,
@@ -263,78 +332,55 @@ def main() -> int:
         )
         print(current_unit)
         all_planner_units.append(current_unit)
-        for course_name in current_unit.courses:
-            map_course_to_number_of_occurences[course_name] += 1
 
-    # is a list of course names that are attended by more than one person
-    duplicated_courses = [course_name
-                          for course_name, num_occurences in map_course_to_number_of_occurences.items()
-                          if num_occurences > 1]
+    # get all courses that are attended by more than one person
+    shared_courses = get_shared_courses(all_planner_units)
 
     # find all possible timetables with duplicate courses. this approach does not scale,
     # but for at most 3 people it is enough
-    with tt.tmpTimetable(php_session_cookies) as duplicated_timetable:
-        for duplicated_course in duplicated_courses:
-            tt.add_course_to_timetable (duplicated_timetable.timetable_id, duplicated_course, dydactic_cycle, php_session_cookies)
-        duplicate_groups = tt.get_groups_from_timetable (duplicated_timetable.timetable_id, True, php_session_cookies)
-        duplicate_timetables = list_possible_timetables (duplicate_groups)
+    with tt.TmpTimetable(php_session_cookies) as shared_timetable:
+        # create a timetable containing only shared courses
+        for shared_course in shared_courses:
+            tt.add_course_to_timetable(
+                shared_timetable.timetable_id,
+                shared_course,
+                COURSE_TERMS[shared_course],
+                php_session_cookies
+            )
+        shared_groups = tt.get_groups_from_timetable(
+            shared_timetable.timetable_id, True, php_session_cookies
+        )
+        shared_groups_timetables = list_possible_timetables (shared_groups)
 
     # rank plans for all people
-    for current_unit in all_planner_units:
-        current_unit.ranked_plans = get_top_timetables(current_unit)
+    for planner_unit in all_planner_units:
+        planner_unit.ranked_timetables = get_top_timetables(planner_unit)
 
-    #
-    best_picked_plans: list[list[int]] = []
-    # best attained combined score
-    best_score: float = math.inf
+    # list of timetables that fit a certain shared timetable for all people
+    best_matching_timetables: list[list[int]] = []
+    # best attained combined score (we attempt to minimize it)
+    best_group_score: float = math.inf
 
-    for duplicate_timetable in duplicate_timetables:
+    for shared_timetable in shared_groups_timetables:
+        best_timetables_per_person, group_score = get_best_fitting_timetables_group(
+            all_planner_units,
+            shared_timetable,
+            NUM_TIMETABLES
+        )
 
-        # list of indices of best plans that fit duplicate timetable for all people
-        I_picked_plans: list[list[int]] = []
-        I_score: float = 0
+        # update if set of timetables is better
+        if group_score < best_group_score:
+            best_group_score = group_score
+            best_matching_timetables = best_timetables_per_person
 
-        # loop finds a plan which fits the duplicates
-        for current_unit in all_planner_units:
-
-            # list of indices of best plans that fit duplicate timetable for current person
-            II_picked_plans: list[int] = []
-            II_score: float = 0
-
-            # loop over all plans in order from best to worst and remember the best NUM_TIMETABLES ones
-            for index, (unit_timetable, score) in enumerate(current_unit.ranked_plans):
-                if groups_fit (duplicate_timetable, unit_timetable):
-
-                    II_score += score
-                    II_picked_plans.append (index)
-
-                    if len(II_picked_plans) == NUM_TIMETABLES:
-                        break
-
-            # remember plans of current person
-            I_picked_plans.append (II_picked_plans)
-            # update the all people score by local score
-            I_score += II_score ** 3
-
-        # list of plans for any person should have at least NUM_TIMETABLES entries
-        if any (len(try_picked_plan) < NUM_TIMETABLES for try_picked_plan in I_picked_plans):
-            continue
-
-        # update if set of plans is better
-        if (I_score < best_score):
-            best_score = I_score
-            best_picked_plans = I_picked_plans
-
-
-    if len(best_picked_plans) == 0:
-        print ('failed to find a plan system')
+    if len(best_matching_timetables) == 0:
+        print ('failed to find a timetable system')
         return 1
 
     # get course ids
-
     for index, current_unit in enumerate(all_planner_units):
         #top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
-        top_timetables = [current_unit.ranked_plans[i] for i in best_picked_plans[index][:NUM_TIMETABLES]]
+        top_timetables = [current_unit.ranked_timetables[i] for i in best_matching_timetables[index][:NUM_TIMETABLES]]
         # ids of copies of the original timetable
         timetable_instance_ids: list[int] = (
             tt.duplicate_timetable(
