@@ -174,7 +174,6 @@ def init_planner_unit_from_config(path: pathlib.Path,
         if course not in COURSE_TERMS:
             COURSE_TERMS[course] = get_course_term(course, dydactic_cycle)
 
-    merge_groups = evaluator != 'custom'
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
     # create a timetable with all courses
     timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
@@ -186,7 +185,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
         courses = courses,
         evaluator = evaluator,
         template_timetable_id= timetable_id,
-        groups = tt.get_groups_from_timetable(timetable_id, merge_groups, cookies),
+        groups = tt.get_groups_from_timetable(timetable_id, True, cookies),
         config_path = path
     )
 
@@ -330,6 +329,7 @@ def main() -> int:
             dydactic_cycle,
             php_session_cookies
         )
+        current_unit.ranked_timetables = get_top_timetables(current_unit)
         print(current_unit)
         all_planner_units.append(current_unit)
 
@@ -352,10 +352,6 @@ def main() -> int:
         )
         shared_groups_timetables = list_possible_timetables (shared_groups)
 
-    # rank plans for all people
-    for planner_unit in all_planner_units:
-        planner_unit.ranked_timetables = get_top_timetables(planner_unit)
-
     # list of timetables that fit a certain shared timetable for all people
     best_matching_timetables: list[list[int]] = []
     # best attained combined score (we attempt to minimize it)
@@ -367,7 +363,6 @@ def main() -> int:
             shared_timetable,
             NUM_TIMETABLES
         )
-
         # update if set of timetables is better
         if group_score < best_group_score:
             best_group_score = group_score
@@ -377,10 +372,10 @@ def main() -> int:
         print ('failed to find a timetable system')
         return 1
 
-    # get course ids
+
     for index, current_unit in enumerate(all_planner_units):
-        #top_timetables = get_top_timetables(current_unit, NUM_TIMETABLES)
-        top_timetables = [current_unit.ranked_timetables[i] for i in best_matching_timetables[index][:NUM_TIMETABLES]]
+        top_timetables = [current_unit.ranked_timetables[i]
+                          for i in best_matching_timetables[index][:NUM_TIMETABLES]]
         # ids of copies of the original timetable
         timetable_instance_ids: list[int] = (
             tt.duplicate_timetable(
