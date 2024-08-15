@@ -113,6 +113,11 @@ def _get_entry_data (entry: bs4.element.Tag):
     name_match = typing.cast(re.Match[str], re.search (r'^([A-Z]*),\s*gr\.\s*(\d*)', name))
     time_match = typing.cast(re.Match[str], re.search(r'(\d*):(\d*) - (\d*):(\d*)', dates))
 
+    person_div = entry.find ('div', {'slot': 'dialog-person'})
+    teacher: str = 'UNKNOWN'
+    if person_div is not None:
+        teacher = person_div.text.strip().replace (',', '')
+
     data = {
         'classtype': name_match.group(1),
         'group_num': name_match.group(2),
@@ -120,7 +125,8 @@ def _get_entry_data (entry: bs4.element.Tag):
         'parity': _parity_to_int_polish(_get_parity_polish(dates)),
         'course': entry['name-id'],
         'time_from': _transform_time (time_match.group(1), time_match.group(2)),
-        'time_to': _transform_time (time_match.group(3), time_match.group(4))
+        'time_to': _transform_time (time_match.group(3), time_match.group(4)),
+        'teacher': teacher
     }
     return data
 
@@ -164,6 +170,7 @@ class GroupEntry:
     course: str = ""
     classtype: str = ""
     hours: set[HourEntry] = field(default_factory=set)
+    teacher: str = ""
 
     def __str__ (self):
         return ('group: ' + str(self.group_nums) +
@@ -318,6 +325,7 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
                 time_to = timetable_entry['time_to']
             )
             current_groups[group_num].hours.add(current_hour)
+            current_groups[group_num].teacher = timetable_entry['teacher']
 
         group_list = list(current_groups.values())
         if merge_groups:
