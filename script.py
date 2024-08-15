@@ -42,6 +42,9 @@ def get_pattern (args) -> str:
     print ('Enter regular expression to match:')
     return input ()
 
+def add_cycle_option (parser) -> None:
+    parser.add_argument('-c', '--cycle', metavar='CYCLE', help='Dydactic cycle')
+
 def get_cycle (args) -> str:
     if args.c:
         return args.c
@@ -106,7 +109,7 @@ def downloader_main (args) -> int:
 
 def add_downloader_options (downloader_parser) -> None:
     add_credentials_option (downloader_parser)
-    downloader_parser.add_argument('-c', help='Cycle')
+    add_cycle_option (downloader_parser)
 
 """Module that downloads all course info and allows to search it using regular expressions."""
 ELEMS_PER_PAGE: int = 100
