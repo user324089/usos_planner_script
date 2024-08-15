@@ -1,7 +1,7 @@
 """This module provides functionality to log in to the USOS system."""
 import re
 import requests
-from .utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
+from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
 
 def log_in_to_usos (username, password):
     """Logs into USOS and returns cookies with PHP session."""
