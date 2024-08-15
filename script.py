@@ -33,6 +33,15 @@ def get_login_credentials (args):
         password = getpass()
     return username, password
 
+def add_pattern_option (parser):
+    parser.add_argument('-p', '--pattern', metavar='PATTERN', help='Regex pattern to match')
+
+def get_pattern (args) -> str:
+    if args.pattern:
+        return args.pattern
+    print ('Enter regular expression to match:')
+    return input ()
+
 def get_cycle (args) -> str:
     if args.c:
         return args.c
@@ -40,9 +49,7 @@ def get_cycle (args) -> str:
 
 def deleter_main (args):
     credentials = get_login_credentials (args)
-
-    print ('enter regular expression:')
-    expression: str = input()
+    expression = get_pattern (args)
 
     cookies = usos_tools.login.log_in_to_usos (*credentials)
     for timetable_name, timetable_id in tt.get_all_timetables (cookies):
@@ -51,8 +58,7 @@ def deleter_main (args):
 
 def add_deleter_options (deleter_parser):
     add_credentials_option (deleter_parser)
-    #TODO add pattern option
-
+    add_pattern_option (deleter_parser)
 
 def downloader_main (args) -> int:
 
