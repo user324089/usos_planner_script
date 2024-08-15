@@ -1,18 +1,208 @@
-"""Module that calculates the best possible timetables containing given courses
-using a given evaluator function, then creates them in USOS."""
-import random
+import re
 from getpass import getpass
+import argparse
 import sys
+import json
+import math
+import requests
+from bs4 import BeautifulSoup
+import random
 import pathlib
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
-import json
-import argparse
-import math
-import requests
+
 import usos_tools.login
+import usos_tools.cart
 import usos_tools.timetables as tt
 from usos_tools.utils import EVEN_DAYS, ODD_DAYS
+
+def add_credentials_option (parser) -> None:
+    parser.add_argument('-l', '--login', metavar='FILE', help='Usos login data file')
+
+def get_login_credentials (args):
+    if args.login:
+        login_filename = args.login
+        with open (login_filename, 'r', encoding="utf-8") as login_file:
+            credentials = login_file.read().split('\n')
+            if len(credentials) < 2:
+                raise RuntimeError('Failed to read credentials')
+            username = credentials[0]
+            password = credentials[1]
+    else:
+        username = input('username:')
+        password = getpass()
+    return username, password
+
+def get_cycle (args) -> str:
+    if args.c:
+        return args.c
+    return input('cycle:')
+
+def deleter_main (args):
+    credentials = get_login_credentials (args)
+
+    print ('enter regular expression:')
+    expression: str = input()
+
+    cookies = usos_tools.login.log_in_to_usos (*credentials)
+    for timetable_name, timetable_id in tt.get_all_timetables (cookies):
+        if re.match (expression, timetable_name):
+            tt.delete_timetable (timetable_id, cookies)
+
+def add_deleter_options (deleter_parser):
+    add_credentials_option (deleter_parser)
+    #TODO add pattern option
+
+
+def downloader_main (args) -> int:
+
+    credentials = get_login_credentials (args)
+    cycle = get_cycle (args)
+
+    php_session_cookies = usos_tools.login.log_in_to_usos (*credentials)
+
+    codes = read_words_from_file ('codes')
+
+    with tt.TmpTimetable(php_session_cookies) as timetable:
+        for code in codes:
+            tt.add_course_to_timetable(
+                timetable.timetable_id,
+                code,
+                cycle,
+                php_session_cookies
+            )
+        group_data = tt.get_groups_from_timetable(
+            timetable.timetable_id, False, php_session_cookies
+            )
+
+        entries = defaultdict (lambda: defaultdict (lambda: defaultdict (list)))
+
+        for course_name, group_data_of_name in group_data.items():
+            for entry_type, groups in group_data_of_name.items():
+                for group in groups:
+                    for hour in group.hours:
+                         relevant_data = {'day': hour.day, 'parity': hour.parity, 'lesson': int(hour.time_from-8)//2, 'teacher': group.teacher}
+                         if (len(group.group_nums) != 1):
+                             print ('error, group has wrong number of names')
+                             return 1
+                         # gets any group num
+                         group_num = next(iter(group.group_nums))
+                         entries[course_name][entry_type][group_num].append (relevant_data)
+
+
+    json_str = json.dumps(entries, indent=2)
+
+    with open("site/data.js", 'w') as f:
+        f.write ('let data=')
+        f.write (json_str)
+
+    return 0
+
+def add_downloader_options (downloader_parser) -> None:
+    add_credentials_option (downloader_parser)
+    downloader_parser.add_argument('-c', help='Cycle')
+
+"""Module that downloads all course info and allows to search it using regular expressions."""
+ELEMS_PER_PAGE: int = 100
+DEFAULT_TIMEOUT = 10
+CODE_BOX_LEN = 20
+NAME_BOX_LEN = 100
+
+def get_courses_response (begin: int, count: int) -> requests.Response:
+    """Get courses from begin to begin+count from the list of all courses."""
+    params = {
+        'forward': '',
+        '_pattern': '',
+        'cp_showDescriptions': 0,
+        'cp_showGroupsColumn': 0,
+        'cp_cdydsDisplayLevel': 2,
+        'f_tylkoWRejestracji': 0,
+        'f_obcojezyczne': 0,
+        'method': 'default',
+        'kierujNaPlanyGrupy': 0,
+        'pattern': '',
+        'tab7ad4_offset': begin,
+        'tab7ad4_limit': count,
+        'tab7ad4_order': '2a1a',
+        'f_modified': 1,
+        'f_grupa': '',
+    }
+
+    return requests.get (
+        'https://usosweb.mimuw.edu.pl/kontroler.php?_action=katalog2/przedmioty/szukajPrzedmiotu',
+        params=params,
+        timeout=DEFAULT_TIMEOUT
+    )
+
+def download_all_courses ():
+    """Download all courses visible in USOS course search."""
+    count_response = get_courses_response (0, 1)
+    print ('Has count response')
+    num_courses_match = re.search (r'elements-count=(\d*)', count_response.text)
+
+    if num_courses_match is None:
+        raise RuntimeError('Error reading number of courses')
+
+    num_courses: int = int(num_courses_match[1])
+
+    codes_with_names: list[tuple[str, str]] = []
+
+    for page_num in range (math.ceil(num_courses/ELEMS_PER_PAGE)):
+        r = get_courses_response (page_num * ELEMS_PER_PAGE, ELEMS_PER_PAGE)
+        soup = BeautifulSoup (r.content, 'html.parser')
+
+        for tr in soup.find_all('tr', ['odd_row', 'even_row']):
+            if len(elems := tr.find_all('td')) < 2:
+                raise RuntimeError('Error while downloading courses')
+            code_elem, name_elem = elems[:2]
+            code_matches = re.search (r'\S+', code_elem.text)
+            if code_matches is None:
+                raise RuntimeError('Error reading course code')
+            code: str = code_matches[0]
+            name: str = name_elem.find_all('a')[-1].text
+            codes_with_names.append ((code, name))
+
+        print ('Downloaded', len(codes_with_names), 'entries')
+
+    return codes_with_names
+
+def getter_main(_) -> int:
+    """Search for courses matching the provided regex."""
+    codes_with_names: list[tuple[str, str]]
+    try:
+        with open ('courses.json', encoding="utf-8") as courses_file:
+            codes_with_names = json.load(courses_file)
+    except FileNotFoundError:
+        try:
+            codes_with_names = download_all_courses()
+        except KeyboardInterrupt:
+            return 1
+
+        with open('courses.json', 'w', encoding="utf-8") as f:
+            json.dump(codes_with_names, f, indent=2)
+
+    try:
+        while True:
+            pattern: str = input('Please enter regular expression to search for courses:')
+            try:
+                for (code, name) in codes_with_names:
+                    if re.match (pattern, name):
+                        box_len = max(NAME_BOX_LEN, len(name))
+                        print ('┌' + CODE_BOX_LEN * '─' + '┬' + box_len * '─' + '┐')
+                        print (('│{:>' + str(CODE_BOX_LEN) + '}│{:>' + str(box_len) + '}│')
+                               .format(code, name))
+                        print ('└' + CODE_BOX_LEN * '─' + '┴' + box_len * '─' + '┘')
+            except re.error:
+                print ('Error with regular expression')
+    except KeyboardInterrupt:
+        return 0
+
+
+def add_getter_options (_) -> None:
+    pass
+
+"""Module that calculates the best possible timetables containing given courses
+using a given evaluator function, then creates them in USOS."""
 
 NUM_TIMETABLES = 1
 USOSAPI_TIMEOUT = 5
@@ -286,34 +476,14 @@ def get_shared_courses (planner_units: list[PlannerUnit]) -> list[str]:
     )
     return [course for course, count in course_counter.items() if count > 1]
 
-
-def get_login_credentials() -> tuple[str, str]:
-    """Gets login credentials from a file or from the user."""
-    parser = argparse.ArgumentParser(description='Usos planner')
-    parser.add_argument('-l', '--login', metavar='FILE', help='Usos login data file')
-    args = parser.parse_args()
-    if args.login:
-        login_filename = args.login
-        with open (login_filename, 'r', encoding="utf-8") as login_file:
-            credentials = login_file.read().split('\n')
-            if len(credentials) < 2:
-                raise RuntimeError('Failed to read credentials')
-            username = credentials[0]
-            password = credentials[1]
-    else:
-        username = input('username:')
-        password = getpass()
-    return username, password
-
-
-def main() -> int:
+def planner_main(args) -> int:
     """Calculates the best possible timetables according to config and creates them in USOS."""
     dydactic_cycle: str = read_dydactic_cycle()
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
     print ('starting run:', current_hash)
 
-    php_session_cookies = usos_tools.login.log_in_to_usos(*get_login_credentials())
+    php_session_cookies = usos_tools.login.log_in_to_usos(*get_login_credentials(args))
 
     all_planner_units: list[PlannerUnit] = []
 
@@ -394,6 +564,53 @@ def main() -> int:
             }
             tt.split_timetable (timetable_id, course_unit_to_groups, php_session_cookies)
             print ('shattered timetable')
+    return 0
+
+def add_planner_options (planner_parser) -> None:
+    add_credentials_option (planner_parser)
+
+"""Program that downloads the courses that a user is registered to"""
+
+def cart_main (args):
+    #map_cycle_to_codes = usos_tools.cart.get_cart_subject_codes ( usos_tools.login.log_in_to_usos(*get_login_credentials()))
+    map_cycle_to_codes = usos_tools.cart.get_cart_subject_codes ( usos_tools.login.log_in_to_usos(*get_login_credentials(args)))
+    for cycle, codes in map_cycle_to_codes.items():
+        print (cycle)
+        for code in codes:
+            print ('\t' + code)
+
+def add_cart_options (cart_parser) -> None:
+    add_credentials_option (cart_parser)
+
+def main () -> int:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(help='usos tools program', dest='command')
+
+    deleter_parser = subparsers.add_parser("delete")
+    add_deleter_options (deleter_parser)
+    downloader_parser = subparsers.add_parser("download")
+    add_downloader_options (downloader_parser)
+    getter_parser = subparsers.add_parser("get")
+    add_getter_options (getter_parser)
+    planner_parser = subparsers.add_parser("plan")
+    add_planner_options (planner_parser)
+    cart_parser = subparsers.add_parser("cart")
+    add_cart_options (cart_parser)
+
+    args = parser.parse_args()
+
+    match args.command:
+        case 'delete':
+            deleter_main (args)
+        case 'download':
+            downloader_main (args)
+        case 'get':
+            getter_main (args)
+        case 'plan':
+            planner_main (args)
+        case 'cart':
+            cart_main (args)
+
     return 0
 
 if __name__ == '__main__':
