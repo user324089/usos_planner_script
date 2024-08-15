@@ -2,13 +2,14 @@
 import re
 import typing
 from collections import defaultdict
-from dataclasses import dataclass, field
 import requests
 from bs4 import BeautifulSoup
 import bs4
 from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
 from usos_tools.utils import (_create_form_str, _get_csrf_token, _get_weekday_polish,
-                              _get_parity_polish, _parity_to_int_polish, _get_classtype_polish)
+                              _get_parity_polish, _parity_to_int_polish, _get_classtype_polish,
+                              _transform_time, _merge_groups_by_time, do_groups_collide)
+from usos_tools.models import HourEntry, GroupEntry
 
 
 def add_course_to_timetable(timetable_id: int, course_id: str, dydactic_cycle: str, cookies):
@@ -89,16 +90,6 @@ def duplicate_timetable (timetable_id: int, num: int, name: str, cookies) -> lis
 
     return new_timetables_ids
 
-def _transform_time (hours_str: str, minutes_str: str):
-    """Converts time into a decimal,
-    adjusting for actual length of the class."""
-    hours = int(hours_str)
-    minutes = int(minutes_str)
-    if minutes == 0 and hours != 10:
-        hours -= 1
-        minutes = 45
-    return hours + minutes/60
-
 def _get_entry_data (entry: bs4.element.Tag):
     """Retrieves info about a single timetable entry."""
     name = entry.find_all('div')[0].string
@@ -129,66 +120,6 @@ def _get_entry_data (entry: bs4.element.Tag):
         'teacher': teacher
     }
     return data
-
-@dataclass
-class HourEntry:
-    """Class representing a single class hour."""
-    day: str
-    parity: int
-    time_from: int
-    time_to: int
-
-    def __str__ (self):
-        return ('day: ' + self.day + ' parity: ' + str(self.parity)
-                + ' from: ' + str(self.time_from) + ' to: ' + str(self.time_to))
-    def __eq__(self, other):
-        if not isinstance(other, HourEntry):
-            # don't attempt to compare against unrelated types
-            return NotImplemented
-
-        return (self.day == other.day and self.parity == other.parity
-                and self.time_from == other.time_from)
-    def __hash__(self):
-        return hash((self.day, self.parity, self.time_from, self.time_to))
-
-
-def do_hours_collide (l: HourEntry, r: HourEntry) -> bool:
-    """Checks if two HourEntries overlap."""
-    if l.day != r.day:
-        return False
-    if l.parity & r.parity == 0:
-        return False
-    return l.time_from <= r.time_to and l.time_to >= r.time_from
-
-@dataclass
-class GroupEntry:
-    """Class representing a class group.
-    If multiple groups have the same properties (course, classtype, hours),
-    they might be grouped into a single GroupEntry with their numbers in group_nums."""
-
-    group_nums: set[str] = field(default_factory=set)
-    course: str = ""
-    classtype: str = ""
-    hours: set[HourEntry] = field(default_factory=set)
-    teacher: str = ""
-
-    def __str__ (self):
-        return ('group: ' + str(self.group_nums) +
-                ' from ' + self.course + ' ' + self.classtype + '\n' +
-                '\n'.join(str(hour) for hour in self.hours))
-
-    def __hash__ (self):
-        return hash ((self.course, self.classtype))
-
-    def __eq__ (self, r):
-        return (self.course == r.course and
-                self.classtype == r.classtype and
-                self.group_nums == r.group_nums)
-
-def do_groups_collide (l: GroupEntry, r: GroupEntry) -> bool:
-    """Checks if two GroupEntries overlap in time."""
-    return any(do_hours_collide(hour_l, hour_r) for hour_l in l.hours for hour_r in r.hours)
-
 
 def split_course(timetable_id: int, n: int, groups: dict[str, GroupEntry], cookies):
     """Split n-th unsplit course entry in the timetable, keeping only given groups.
@@ -263,18 +194,6 @@ def split_timetable (timetable_id: int, groups: dict[tuple[str, str], GroupEntry
     # iterating through all the courses in the timetable
     for course in split_courses:
         split_course(timetable_id, 0, groups_to_keep_by_course[course], cookies)
-
-def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
-    """Returns list with groups merged by their hours (all group numbers are in group_nums)."""
-    merged_groups: list[GroupEntry] = []
-    for group in groups:
-        for merged_group in merged_groups:
-            if group.hours == merged_group.hours:
-                merged_group.group_nums.update(group.group_nums)
-                break
-        else:
-            merged_groups.append(group)
-    return merged_groups
 
 def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
                                cookies)  -> dict[str, dict[str, list[GroupEntry]]]:
