@@ -1,6 +1,8 @@
 from getpass import getpass
 
-def get_login_credentials (args) -> tuple[str, str]:
+def get_login_credentials (args) -> tuple[str, str] | None:
+    if args.anon:
+        return None
     if args.login:
         login_filename = args.login
         with open (login_filename, 'r', encoding="utf-8") as login_file:

@@ -8,6 +8,8 @@ import scripts.cart_course_codes_getter
 
 def add_credentials_option (parser) -> None:
     parser.add_argument('-l', '--login', metavar='FILE', help='Usos login data file')
+    parser.add_argument('-a', '--anon', action='store_true', help='Anonymous session')
+
 
 def add_pattern_option (parser):
     parser.add_argument('-p', '--pattern', metavar='PATTERN', help='Regex pattern to match')

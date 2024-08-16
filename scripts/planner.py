@@ -260,9 +260,14 @@ def main(args) -> int:
     dydactic_cycle: str = read_dydactic_cycle()
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
-    print ('starting run:', current_hash)
+    print('starting run:', current_hash)
 
-    php_session_cookies = usos_tools.login.log_in_to_usos(*get_login_credentials(args))
+    credentials = get_login_credentials(args)
+    if credentials:
+        php_session_cookies = usos_tools.login.log_in_to_usos(*credentials)
+    else:
+        print("Anonymous session")
+        php_session_cookies = None
 
     all_planner_units: list[PlannerUnit] = []
 
