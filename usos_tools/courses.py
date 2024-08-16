@@ -45,7 +45,7 @@ def _init_hour_entry_from_json(activity, week_parity: int) -> HourEntry:
         time_to=_transform_time(end_date.hour, end_date.minute)
     )
 
-def get_course_groups(course: str, term: str) -> dict[str, dict[str, list[GroupEntry]]]:
+def get_course_groups(course: str, term: str, merge_groups: bool) -> dict[str, dict[str, list[GroupEntry]]]:
     """Returs a dictionary of all groups in a course, grouped by classtype."""
     if _is_file_cached(f"courses/{course}_{term}.json"):
         return jsonpickle.decode(_load_cache(f"courses/{course}_{term}.json"))
@@ -87,7 +87,8 @@ def get_course_groups(course: str, term: str) -> dict[str, dict[str, list[GroupE
                     hours=set(_merge_hour_entries_by_time(hours))
                 )
             )
-        groups[classtype] = _merge_groups_by_time(groups[classtype])
+        if merge_groups:
+            groups[classtype] = _merge_groups_by_time(groups[classtype])
 
     course_groups = {course: groups}
     # cache the result

@@ -151,7 +151,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
 
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
     for course in courses:
-        groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course]))
+        groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course], True))
 
     return PlannerUnit(
         name = path.name,
@@ -298,7 +298,7 @@ def main(args) -> int:
     for shared_course in shared_courses:
         shared_groups.update(
             usos_tools.courses.get_course_groups(
-                shared_course, COURSE_TERMS[shared_course]
+                shared_course, COURSE_TERMS[shared_course], True
             )
         )
     shared_groups_timetables = list_possible_timetables (shared_groups)
