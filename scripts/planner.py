@@ -327,22 +327,7 @@ def main(args) -> int:
     for index, current_unit in enumerate(all_planner_units):
         top_timetables = [current_unit.ranked_timetables[i]
                           for i in best_matching_timetables[index][:NUM_TIMETABLES]]
-        # ids of copies of the original timetable
-        timetable_instance_ids: list[int] = (
-            tt.duplicate_timetable(
-                current_unit.template_timetable_id,
-                len(top_timetables),
-                'automatic_instance_' + current_unit.name + '_' + current_hash + '__',
-                php_session_cookies
-            )
-        )
+        for timetable, _ in top_timetables:
+            usos_tools.timetables.display_timetable(timetable, f"Timetable {current_unit.name}")
 
-        # recreate the top timetables in USOS
-        for (timetable, _), timetable_id in zip(top_timetables, timetable_instance_ids):
-
-            course_unit_to_groups: dict[tuple[str, str], tt.GroupEntry] = {
-                (group.course, group.classtype) : group for group in timetable
-            }
-            tt.split_timetable (timetable_id, course_unit_to_groups, php_session_cookies)
-            print ('shattered timetable')
     return 0

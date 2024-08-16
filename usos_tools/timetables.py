@@ -5,7 +5,8 @@ from collections import defaultdict
 import requests
 from bs4 import BeautifulSoup
 import bs4
-from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT
+import matplotlib.pyplot as plt
+from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT, ODD_DAYS, EVEN_DAYS, ALL_DAYS
 from usos_tools.utils import (_create_form_str, _get_csrf_token, _get_weekday_polish,
                               _get_parity_polish, _parity_to_int_polish, _get_classtype_polish,
                               _transform_time, _merge_groups_by_time, do_groups_collide)
@@ -282,6 +283,47 @@ def delete_timetable (timetable_id: int, cookies):
         timeout=DEFAULT_TIMEOUT
     )
 
+def display_timetable(groups: list[GroupEntry], name: str):
+    """Shows the timetable as a plot."""
+    fig, ax = plt.subplots()
+
+    days = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela']
+    ax.set_xticks(range(len(days)))
+    ax.set_xticklabels(days)
+
+    ax.set_yticks(range(7, 21))
+    ax.set_yticklabels([f'{h}:00' for h in range(7, 21)])
+    ax.invert_yaxis()
+
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+    # assign a color to each course
+    course_to_color = {group.course: i for i, group in enumerate(groups)}
+    colors = plt.get_cmap('tab20')(range(len(groups)))
+
+    for group in groups:
+        for hour in group.hours:
+            start, end = hour.time_from, hour.time_to
+            day_index = days.index(hour.day)
+
+            height = end - start
+            width = 1 if hour.parity == ALL_DAYS else 0.5
+            x_middle = day_index
+            if hour.parity == ODD_DAYS:
+                x_middle += width/2
+            elif hour.parity == EVEN_DAYS:
+                x_middle -= width/2
+
+            ax.bar(x_middle, height, bottom=start, width=width, edgecolor='black',
+                   color=colors[course_to_color[group.course]], align='center')
+            info = f'{group.course} {group.classtype} {", ".join(group.group_nums)}'
+            ax.text(x_middle, (start + end) / 2, info, va='center', ha='center', fontsize=10, color='black')
+
+    ax.set_xlabel('Days')
+    ax.set_ylabel('Time')
+
+    plt.title(name)
+    plt.show()
 
 class TmpTimetable:
     """Class for creating a temporary timetable. Can be used in a "with ... as" statement."""
