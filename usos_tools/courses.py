@@ -81,7 +81,7 @@ def get_course_groups(course: str, term: str) -> dict[str, dict[str, list[GroupE
         for number, hours in groups_info.items():
             groups[classtype].append(
                 GroupEntry(
-                    group_nums={number},
+                    group_nums={str(number)},
                     course=course,
                     classtype=classtype,
                     hours=set(_merge_hour_entries_by_time(hours))

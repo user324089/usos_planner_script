@@ -6,7 +6,6 @@ import random
 import pathlib
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
-import requests
 import usos_tools.login
 import usos_tools.cart
 import usos_tools.timetables as tt
@@ -146,12 +145,16 @@ def init_planner_unit_from_config(path: pathlib.Path,
     for course in courses:
         tt.add_course_to_timetable(timetable_id, course, COURSE_TERMS[course], cookies)
 
+    groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
+    for course in courses:
+        groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course]))
+
     return PlannerUnit(
         name = path.name,
         courses = courses,
         evaluator = evaluator,
         template_timetable_id= timetable_id,
-        groups = tt.get_groups_from_timetable(timetable_id, True, cookies),
+        groups = groups,
         config_path = path
     )
 
@@ -293,9 +296,14 @@ def main(args) -> int:
                 COURSE_TERMS[shared_course],
                 php_session_cookies
             )
-        shared_groups = tt.get_groups_from_timetable(
-            shared_timetable.timetable_id, True, php_session_cookies
-        )
+
+        shared_groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
+        for shared_course in shared_courses:
+            shared_groups.update(
+                usos_tools.courses.get_course_groups(
+                    shared_course, COURSE_TERMS[shared_course]
+                )
+            )
         shared_groups_timetables = list_possible_timetables (shared_groups)
 
     # list of timetables that fit a certain shared timetable for all people
