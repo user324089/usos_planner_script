@@ -153,7 +153,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
         name = path.name,
         courses = courses,
         evaluator = evaluator,
-        template_timetable_id= timetable_id,
+        template_timetable_id = timetable_id,
         groups = groups,
         config_path = path
     )
@@ -292,24 +292,14 @@ def main(args) -> int:
 
     # find all possible timetables with duplicate courses. this approach does not scale,
     # but for at most 3 people it is enough
-    with tt.TmpTimetable(php_session_cookies) as shared_timetable:
-        # create a timetable containing only shared courses
-        for shared_course in shared_courses:
-            tt.add_course_to_timetable(
-                shared_timetable.timetable_id,
-                shared_course,
-                COURSE_TERMS[shared_course],
-                php_session_cookies
+    shared_groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
+    for shared_course in shared_courses:
+        shared_groups.update(
+            usos_tools.courses.get_course_groups(
+                shared_course, COURSE_TERMS[shared_course]
             )
-
-        shared_groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
-        for shared_course in shared_courses:
-            shared_groups.update(
-                usos_tools.courses.get_course_groups(
-                    shared_course, COURSE_TERMS[shared_course]
-                )
-            )
-        shared_groups_timetables = list_possible_timetables (shared_groups)
+        )
+    shared_groups_timetables = list_possible_timetables (shared_groups)
 
     # list of timetables that fit a certain shared timetable for all people
     best_matching_timetables: list[list[int]] = []
