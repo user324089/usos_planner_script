@@ -140,10 +140,14 @@ def init_planner_unit_from_config(path: pathlib.Path,
             COURSE_TERMS[course] = usos_tools.courses.get_course_term(course, dydactic_cycle)
 
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
-    # create a timetable with all courses
-    timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
-    for course in courses:
-        tt.add_course_to_timetable(timetable_id, course, COURSE_TERMS[course], cookies)
+
+    timetable_id = -1
+    # do not create a timetable if the session is anonymous
+    if cookies:
+        # create a timetable with all courses
+        timetable_id: int = tt.create_timetable(template_timetable_name, cookies)
+        for course in courses:
+            tt.add_course_to_timetable(timetable_id, course, COURSE_TERMS[course], cookies)
 
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
     for course in courses:
@@ -262,12 +266,10 @@ def main(args) -> int:
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
     print('starting run:', current_hash)
 
-    credentials = get_login_credentials(args)
-    if credentials:
+    # for anonymous session, the cookies are None
+    php_session_cookies = None
+    if credentials := get_login_credentials(args):
         php_session_cookies = usos_tools.login.log_in_to_usos(*credentials)
-    else:
-        print("Anonymous session")
-        php_session_cookies = None
 
     all_planner_units: list[PlannerUnit] = []
 
