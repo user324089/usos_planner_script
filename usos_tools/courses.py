@@ -4,7 +4,7 @@ from functools import lru_cache
 from collections import defaultdict
 import jsonpickle
 import requests
-from usos_tools.utils import DEFAULT_TIMEOUT, ODD_DAYS, EVEN_DAYS, ALL_DAYS
+from usos_tools.utils import DEFAULT_TIMEOUT, USOSAPI_TIMEOUT, ODD_DAYS, EVEN_DAYS, ALL_DAYS
 from usos_tools.utils import (_transform_time, _merge_groups_by_time,
                               _is_file_cached, _save_cache, _load_cache)
 from usos_tools.models import HourEntry, GroupEntry
@@ -93,3 +93,29 @@ def get_course_groups(course: str, term: str) -> dict[str, dict[str, list[GroupE
     # cache the result
     _save_cache(LOCAL_CACHE_DIR, f"{course}_{term}.json", jsonpickle.encode(course_groups))
     return course_groups
+
+@lru_cache
+def get_course_term(course: str, term: str) -> str:
+    """Returns the course term that is the best match for the given term."""
+    response = requests.get(
+        "https://usosapps.uw.edu.pl/services/courses/course",
+        params={"course_id": course, "fields": "terms"},
+        timeout=USOSAPI_TIMEOUT
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    best_match = None
+    year = term[:4]
+
+    for term_data in data["terms"]:
+        course_term = term_data["id"]
+
+        if course_term == term:
+            return course_term
+        if course_term == year:
+            best_match = course_term
+
+    if best_match is None:
+        raise RuntimeError(f"Failed to find matching term for course {course}.")
+    return best_match

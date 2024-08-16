@@ -6,6 +6,7 @@ from usos_tools.models import HourEntry, GroupEntry
 
 USOSWEB_KONTROLER = 'https://usosweb.mimuw.edu.pl/kontroler.php'
 DEFAULT_TIMEOUT = 20
+USOSAPI_TIMEOUT = 10
 
 ODD_DAYS = 1
 EVEN_DAYS = 2

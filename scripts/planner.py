@@ -10,6 +10,7 @@ import requests
 import usos_tools.login
 import usos_tools.cart
 import usos_tools.timetables as tt
+import usos_tools.courses
 from usos_tools.utils import EVEN_DAYS, ODD_DAYS
 from scripts.utils import read_words_from_file, get_login_credentials
 
@@ -17,31 +18,6 @@ NUM_TIMETABLES = 1
 USOSAPI_TIMEOUT = 5
 
 COURSE_TERMS: dict[str, str] = {}
-
-def get_course_term(course: str, term: str) -> str:
-    """Returns the course term that is the best match for the given term."""
-    response = requests.get(
-        "https://usosapps.uw.edu.pl/services/courses/course",
-        params={"course_id": course, "fields": "terms"},
-        timeout=USOSAPI_TIMEOUT
-    )
-    response.raise_for_status()
-    data = response.json()
-
-    best_match = None
-    year = term[:4]
-
-    for term_data in data["terms"]:
-        course_term = term_data["id"]
-
-        if course_term == term:
-            return course_term
-        if course_term == year:
-            best_match = course_term
-
-    if best_match is None:
-        raise RuntimeError(f"Failed to find matching term for course {course}.")
-    return best_match
 
 def evaluate_timetable_time (timetable: list[tt.GroupEntry], _: pathlib.Path) -> int:
     """Returns timetable badness with regard to the days' length, their start and end."""
@@ -162,7 +138,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
     # get terms for courses
     for course in courses:
         if course not in COURSE_TERMS:
-            COURSE_TERMS[course] = get_course_term(course, dydactic_cycle)
+            COURSE_TERMS[course] = usos_tools.courses.get_course_term(course, dydactic_cycle)
 
     template_timetable_name = 'automatic_template_' + path.name + '_' + session_hash
     # create a timetable with all courses
