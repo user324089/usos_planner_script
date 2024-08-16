@@ -6,14 +6,12 @@ import jsonpickle
 import requests
 from usos_tools.utils import (DEFAULT_TIMEOUT, USOSAPI_TIMEOUT,
                               USOSAPI_BASE_URL,
-                              ODD_DAYS, EVEN_DAYS, ALL_DAYS)
+                              ODD_DAYS, EVEN_DAYS, ALL_DAYS, WEEKDAYS_POLISH)
 from usos_tools.utils import (_transform_time, _merge_groups_by_time,
                               _is_file_cached, _save_cache, _load_cache)
 from usos_tools.models import HourEntry, GroupEntry
 
-WEEKDAYS_POLISH = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela']
 FREQUENCY = {0: ODD_DAYS, 1: EVEN_DAYS}
-
 LOCAL_CACHE_DIR = 'courses'
 @lru_cache
 def _get_term_weeks(term: str) -> tuple[str, str]:

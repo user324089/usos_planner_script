@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import bs4
 import matplotlib.pyplot as plt
 from usos_tools.utils import (USOSWEB_KONTROLER_BASE_URL, DEFAULT_TIMEOUT,
-                              ODD_DAYS, EVEN_DAYS, ALL_DAYS)
+                              ODD_DAYS, EVEN_DAYS, ALL_DAYS, WEEKDAYS_POLISH)
 from usos_tools.utils import (_create_form_str, _get_csrf_token, _get_weekday_polish,
                               _get_parity_polish, _parity_to_int_polish, _get_classtype_polish,
                               _transform_time, _merge_groups_by_time, do_groups_collide)
@@ -321,9 +321,8 @@ def display_timetable(groups: list[GroupEntry], name: str):
     """Shows the timetable as a plot."""
     fig, ax = plt.subplots()
 
-    days = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela']
-    ax.set_xticks(range(len(days)))
-    ax.set_xticklabels(days)
+    ax.set_xticks(range(len(WEEKDAYS_POLISH)))
+    ax.set_xticklabels(WEEKDAYS_POLISH)
 
     ax.set_yticks(range(7, 21))
     ax.set_yticklabels([f'{h}:00' for h in range(7, 21)])
@@ -338,7 +337,7 @@ def display_timetable(groups: list[GroupEntry], name: str):
     for group in groups:
         for hour in group.hours:
             start, end = hour.time_from, hour.time_to
-            day_index = days.index(hour.day)
+            day_index = WEEKDAYS_POLISH.index(hour.day)
 
             height = end - start
             width = 1 if hour.parity == ALL_DAYS else 0.5

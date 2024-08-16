@@ -13,6 +13,8 @@ ODD_DAYS = 1
 EVEN_DAYS = 2
 ALL_DAYS = ODD_DAYS | EVEN_DAYS
 
+WEEKDAYS_POLISH = ['poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota', 'niedziela']
+
 def _create_form_str (options: dict[str, str]) -> tuple[str, str]:
     """Creates a multiform post payload and returns it and the boundary."""
     boundary: str = '-' * 27 +  ''.join(random.choices('0123456789', k=20))
@@ -33,7 +35,7 @@ def _get_csrf_token(string: str) -> str:
 
 def _get_weekday_polish(string: str) -> str | None:
     """Returns first weekday (in Polish) appearing in the string."""
-    if match := re.search(r'poniedziałek|wtorek|środa|czwartek|piątek', string):
+    if match := re.search(r'|'.join(WEEKDAYS_POLISH), string):
         return match.group(0)
     return None
 
