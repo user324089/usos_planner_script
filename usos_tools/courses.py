@@ -4,7 +4,9 @@ from functools import lru_cache
 from collections import defaultdict
 import jsonpickle
 import requests
-from usos_tools.utils import DEFAULT_TIMEOUT, USOSAPI_TIMEOUT, ODD_DAYS, EVEN_DAYS, ALL_DAYS
+from usos_tools.utils import (DEFAULT_TIMEOUT, USOSAPI_TIMEOUT,
+                              USOSAPI_BASE_URL,
+                              ODD_DAYS, EVEN_DAYS, ALL_DAYS)
 from usos_tools.utils import (_transform_time, _merge_groups_by_time,
                               _is_file_cached, _save_cache, _load_cache)
 from usos_tools.models import HourEntry, GroupEntry
@@ -45,7 +47,8 @@ def _init_hour_entry_from_json(activity, week_parity: int) -> HourEntry:
         time_to=_transform_time(end_date.hour, end_date.minute)
     )
 
-def get_course_groups(course: str, term: str, merge_groups: bool) -> dict[str, dict[str, list[GroupEntry]]]:
+def get_course_groups(course: str, term: str, merge_groups: bool) \
+                                                -> dict[str, dict[str, list[GroupEntry]]]:
     """Returs a dictionary of all groups in a course, grouped by classtype."""
     if _is_file_cached(f"courses/{course}_{term}.json"):
         return jsonpickle.decode(_load_cache(f"courses/{course}_{term}.json"))
@@ -57,7 +60,7 @@ def get_course_groups(course: str, term: str, merge_groups: bool) -> dict[str, d
     for index, week in enumerate(weeks):
         week_parity = FREQUENCY[index]
         activities_response = requests.get(
-            'https://usosapps.uw.edu.pl/services/tt/course_edition',
+            USOSAPI_BASE_URL + '/tt/course_edition',
             params={
                 'course_id': course,
                 'term_id': term,
@@ -99,8 +102,11 @@ def get_course_groups(course: str, term: str, merge_groups: bool) -> dict[str, d
 def get_course_term(course: str, term: str) -> str:
     """Returns the course term that is the best match for the given term."""
     response = requests.get(
-        "https://usosapps.uw.edu.pl/services/courses/course",
-        params={"course_id": course, "fields": "terms"},
+        USOSAPI_BASE_URL + '/courses/course',
+        params={
+            'course_id': course,
+            'fields': 'terms'
+        },
         timeout=USOSAPI_TIMEOUT
     )
     response.raise_for_status()

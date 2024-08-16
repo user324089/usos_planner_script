@@ -6,7 +6,8 @@ import requests
 from bs4 import BeautifulSoup
 import bs4
 import matplotlib.pyplot as plt
-from usos_tools.utils import USOSWEB_KONTROLER, DEFAULT_TIMEOUT, ODD_DAYS, EVEN_DAYS, ALL_DAYS
+from usos_tools.utils import (USOSWEB_KONTROLER_BASE_URL, DEFAULT_TIMEOUT,
+                              ODD_DAYS, EVEN_DAYS, ALL_DAYS)
 from usos_tools.utils import (_create_form_str, _get_csrf_token, _get_weekday_polish,
                               _get_parity_polish, _parity_to_int_polish, _get_classtype_polish,
                               _transform_time, _merge_groups_by_time, do_groups_collide)
@@ -16,9 +17,14 @@ from usos_tools.models import HourEntry, GroupEntry
 def add_course_to_timetable(timetable_id: int, course_id: str, dydactic_cycle: str, cookies):
     """Adds the course (all groups) to the timetable."""
     requests.get(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/dodajWpis', 'plan_id': timetable_id,
-                'klasa': 'P', 'prz_kod': course_id, 'cdyd_kod': dydactic_cycle},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/dodajWpis',
+            'plan_id': timetable_id,
+            'klasa': 'P',
+            'prz_kod': course_id,
+            'cdyd_kod': dydactic_cycle
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -26,8 +32,11 @@ def add_course_to_timetable(timetable_id: int, course_id: str, dydactic_cycle: s
 def create_timetable (name: str, cookies) -> int:
     """Creates an empty timetable in USOS and returns its id."""
     create_request = requests.get (
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/utworz', 'nazwa': name},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/utworz',
+            'nazwa': name
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -37,8 +46,11 @@ def create_timetable (name: str, cookies) -> int:
 def rename_timetable (timetable_id: int, new_name: str, cookies):
     """Changes timetable's name to new_name."""
     edit_request = requests.get(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/edytuj', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/edytuj',
+            'plan_id': timetable_id
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -50,8 +62,11 @@ def rename_timetable (timetable_id: int, new_name: str, cookies):
         'nazwa': new_name
     })
     requests.post(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/zmienNazwe', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/zmienNazwe',
+            'plan_id': timetable_id
+        },
         data=payload,
         headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
         cookies=cookies,
@@ -61,8 +76,11 @@ def rename_timetable (timetable_id: int, new_name: str, cookies):
 def copy_timetable (timetable_id: int, cookies):
     """Creates a copy of a timetable."""
     requests.get(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/skopiuj', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/skopiuj',
+            'plan_id': timetable_id
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -127,8 +145,12 @@ def split_course(timetable_id: int, n: int, groups: dict[str, GroupEntry], cooki
     Groups must be sorted by classtype into lists."""
     # groups: [classtype, GroupEntry]
     split_list_request = requests.get(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/rozbijWpis', 'plan_id': timetable_id, 'nr': n},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/rozbijWpis',
+            'plan_id': timetable_id,
+            'nr': n
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -161,8 +183,11 @@ def split_course(timetable_id: int, n: int, groups: dict[str, GroupEntry], cooki
 
     payload, boundary = _create_form_str(form_dict)
     requests.post(
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/rozbijWpis', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/rozbijWpis',
+            'plan_id': timetable_id
+        },
         data=payload,
         headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
         cookies=cookies,
@@ -175,8 +200,11 @@ def split_timetable (timetable_id: int, groups: dict[tuple[str, str], GroupEntry
     # groups: [[course, classtype], groups]
 
     edit_request = requests.get (
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/edytuj', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/edytuj',
+            'plan_id': timetable_id
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -203,9 +231,12 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
     Groups are grouped by course name and classtype. """
 
     timetable_page = requests.get (
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/pokaz',
-                'plan_id': timetable_id, 'plan_division': 'semester'},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/pokaz',
+            'plan_id': timetable_id,
+            'plan_division': 'semester'
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -258,7 +289,7 @@ def get_groups_from_timetable (timetable_id: int, merge_groups: bool,
 def get_all_timetables (cookies) -> list[tuple[str, int]]:
     """Returns a list of all timetables, consisting of (name, id) tuples."""
     r = requests.get (
-        USOSWEB_KONTROLER,
+        USOSWEB_KONTROLER_BASE_URL,
         params={'_action': 'home/plany/index'},
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
@@ -277,8 +308,11 @@ def get_all_timetables (cookies) -> list[tuple[str, int]]:
 def delete_timetable (timetable_id: int, cookies):
     """Deletes the timetable with given id."""
     requests.get (
-        USOSWEB_KONTROLER,
-        params={'_action': 'home/plany/usun', 'plan_id': timetable_id},
+        USOSWEB_KONTROLER_BASE_URL,
+        params={
+            '_action': 'home/plany/usun',
+            'plan_id': timetable_id
+        },
         cookies=cookies,
         timeout=DEFAULT_TIMEOUT
     )
@@ -317,7 +351,8 @@ def display_timetable(groups: list[GroupEntry], name: str):
             ax.bar(x_middle, height, bottom=start, width=width, edgecolor='black',
                    color=colors[course_to_color[group.course]], align='center')
             info = f'{group.course} {group.classtype} {", ".join(group.group_nums)}'
-            ax.text(x_middle, (start + end) / 2, info, va='center', ha='center', fontsize=10, color='black')
+            ax.text(x_middle, (start + end) / 2, info,
+                    va='center', ha='center', fontsize=10, color='black')
 
     ax.set_xlabel('Days')
     ax.set_ylabel('Time')

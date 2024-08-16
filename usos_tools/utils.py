@@ -4,7 +4,8 @@ import random
 import pathlib
 from usos_tools.models import HourEntry, GroupEntry
 
-USOSWEB_KONTROLER = 'https://usosweb.mimuw.edu.pl/kontroler.php'
+USOSWEB_KONTROLER_BASE_URL = 'https://usosweb.mimuw.edu.pl/kontroler.php'
+USOSAPI_BASE_URL = 'https://usosapps.uw.edu.pl/services'
 DEFAULT_TIMEOUT = 20
 USOSAPI_TIMEOUT = 10
 
