@@ -6,6 +6,8 @@ import random
 import pathlib
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
+import requests.cookies
+
 import usos_tools.login
 import usos_tools.cart
 import usos_tools.timetables as tt
@@ -19,8 +21,13 @@ USOSAPI_TIMEOUT = 5
 COURSE_TERMS: dict[str, str] = {}
 
 def evaluate_timetable_time (timetable: list[tt.GroupEntry], _: pathlib.Path) -> int:
-    """Returns timetable badness with regard to the days' length, their start and end."""
-    # mapping hours of all classes taking place at a given day to that day
+    """
+    Returns timetable badness with regard to the days' length, their start and end.
+    :param timetable: list of groups in the timetable
+    :param _:
+    :return: badness of the timetable
+    """
+
     map_days_to_hours: dict[tuple[str, int], list[tt.HourEntry]] = defaultdict(list[tt.HourEntry])
 
     for entry in timetable:
@@ -53,7 +60,12 @@ def evaluate_timetable_time (timetable: list[tt.GroupEntry], _: pathlib.Path) ->
 
 custom_evaluate_data = {}
 def evaluate_timetable_custom (timetable: list[tt.GroupEntry], path: pathlib.Path) -> int:
-    """Returns timetable badness as a sum of badnesses of each group in it."""
+    """
+    Returns the badness of the timetable as a sum of badnesses of individual groups.
+    :param timetable: list of groups in the timetable
+    :param path: path to the file with group badnesses
+    :return: badness of the timetable
+    """
     if path in custom_evaluate_data:
         data = custom_evaluate_data[path]
     else:
@@ -75,7 +87,11 @@ EVALUATORS = {
 }
 
 def list_possible_timetables (all_course_units: dict[str, dict[str, list[tt.GroupEntry]]]):
-    """Returns a list of all timetables with non-colliding groups."""
+    """
+    Returns a list of all timeables with no colliding groups that contain every course.
+    :param all_course_units: [course][classtype] -> list of groups
+    :return: list of timetables
+    """
     current_timetables: list[list[tt.GroupEntry]] = [[]]
     for groups_with_same_name in all_course_units.values():
         # course unit is a class type (like WYK/CW) associated with a course,
@@ -94,13 +110,14 @@ def list_possible_timetables (all_course_units: dict[str, dict[str, list[tt.Grou
 
 @dataclass
 class PlannerUnit:
-    """Class representing a timetable optimizer."""
+    """
+    Class representing a timetable planner unit.
+    Contains all necessary data to create and optimize timetables.
+    """
     name: str = 'unnamed'
     evaluator: str = 'time'
     # all attended courses
     courses: set[str] = field(default_factory=set)
-    # all groups from all attended courses, sorted by course,
-    # then by course unit they belong to
     # map from course code and type to groups
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = field(default_factory=dict)
     config_path: pathlib.Path = field(default_factory=pathlib.Path)
@@ -259,12 +276,16 @@ def get_shared_courses (planner_units: list[PlannerUnit]) -> list[str]:
     )
     return [course for course, count in course_counter.items() if count > 1]
 
-def main(args) -> int:
-    """Calculates the best possible timetables according to config and creates them in USOS."""
+def initialize(args) -> tuple[requests.cookies.RequestsCookieJar, list[PlannerUnit]]:
+    """
+    Initializes the planner.
+    :param args: command line arguments
+    :return: dydactic cycle, current hash, php session cookies, planner units
+    """
     dydactic_cycle: str = read_dydactic_cycle()
 
     current_hash = ''.join(random.choices('ABCDEFGH', k=6))
-    print('starting run:', current_hash)
+    print('Starting run:', current_hash)
 
     # for anonymous session, the cookies are None
     php_session_cookies = None
@@ -278,7 +299,6 @@ def main(args) -> int:
                         in config_directory.iterdir() if directory.is_dir()]
 
     for personal_config in personal_configs:
-
         current_unit: PlannerUnit = init_planner_unit_from_config(
             personal_config,
             current_hash,
@@ -288,6 +308,13 @@ def main(args) -> int:
         current_unit.ranked_timetables = get_top_timetables(current_unit)
         print(current_unit)
         all_planner_units.append(current_unit)
+
+    return php_session_cookies, all_planner_units
+
+
+def main(args) -> int:
+    """Calculates the best possible timetables according to config and creates them in USOS."""
+    php_session_cookies, all_planner_units = initialize(args)
 
     # get all courses that are attended by more than one person
     shared_courses = get_shared_courses(all_planner_units)
@@ -320,7 +347,7 @@ def main(args) -> int:
             best_matching_timetables = best_timetables_per_person
 
     if len(best_matching_timetables) == 0:
-        print ('failed to find a timetable system')
+        print ('Failed to find a timetable system')
         return 1
 
 
