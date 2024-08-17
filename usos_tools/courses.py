@@ -1,4 +1,5 @@
 """This module contains functions for fetching information about courses from the USOS API."""
+import json
 from datetime import datetime
 from functools import lru_cache
 from collections import defaultdict
@@ -121,24 +122,34 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
 
 @lru_cache
 def get_course_term(course: str, term: str) -> str:
-    """Returns the course term that is the best match for the given term."""
-    response = requests.get(
-        USOSAPI_BASE_URL + '/courses/course',
-        params={
-            'course_id': course,
-            'fields': 'terms'
-        },
-        timeout=USOSAPI_TIMEOUT
-    )
-    response.raise_for_status()
-    data = response.json()
+    """
+    Returns the term which is the best match from the course's terms.
+    :param course: course id
+    :param term: term id (course edition)
+    :return: term id
+    """
+    terms_cache_file = pathlib.Path(f'{course}_terms.json')
+    # try to get course terms from cache
+    if _is_file_cached(LOCAL_CACHE_DIR / terms_cache_file):
+        terms = json.loads(_load_cache(LOCAL_CACHE_DIR / terms_cache_file))
+    else:
+        response = requests.get(
+            USOSAPI_BASE_URL + '/courses/course',
+            params={
+                'course_id': course,
+                'fields': 'terms'
+            },
+            timeout=USOSAPI_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        terms = [term_data['id'] for term_data in data['terms']]
+        _save_cache(LOCAL_CACHE_DIR / terms_cache_file, json.dumps(terms))
 
     best_match = None
     year = term[:4]
 
-    for term_data in data["terms"]:
-        course_term = term_data["id"]
-
+    for course_term in terms:
         if course_term == term:
             return course_term
         if course_term == year:
