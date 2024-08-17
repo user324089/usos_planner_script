@@ -2,17 +2,19 @@
 from datetime import datetime
 from functools import lru_cache
 from collections import defaultdict
+import pathlib
 import jsonpickle
 import requests
-from usos_tools.utils import (DEFAULT_TIMEOUT, USOSAPI_TIMEOUT,
-                              USOSAPI_BASE_URL,
+from usos_tools.utils import (USOSAPI_TIMEOUT, USOSAPI_BASE_URL,
                               ODD_DAYS, EVEN_DAYS, ALL_DAYS, WEEKDAYS_POLISH)
 from usos_tools.utils import (_transform_time, _merge_groups_by_time,
                               _is_file_cached, _save_cache, _load_cache)
 from usos_tools.models import HourEntry, GroupEntry
+import usos_tools.users
 
-FREQUENCY = {0: ODD_DAYS, 1: EVEN_DAYS}
-LOCAL_CACHE_DIR = 'courses'
+FREQUENCY = [ODD_DAYS, EVEN_DAYS]
+LOCAL_CACHE_DIR = pathlib.Path('courses')
+
 @lru_cache
 def _get_term_weeks(term: str) -> tuple[str, str]:
     """Returns the beginning of odd week and one even week during which all classes take place."""
@@ -47,26 +49,32 @@ def _init_hour_entry_from_json(activity, week_parity: int) -> HourEntry:
 
 def get_course_groups(course: str, term: str, merge_groups: bool) \
                                                 -> dict[str, dict[str, list[GroupEntry]]]:
-    """Returs a dictionary of all groups in a course, grouped by classtype."""
-    if _is_file_cached(f"courses/{course}_{term}.json"):
-        return jsonpickle.decode(_load_cache(f"courses/{course}_{term}.json"))
+    """
+    Fetches all groups for the course in the given term.
+    :param course: course id
+    :param term: course term (edition)
+    :param merge_groups: if True, groups with the same hours will be merged
+    :return: dict of the form [course][classtype] -> list of GroupEntries
+    """
+    if _is_file_cached(LOCAL_CACHE_DIR / f"{course}_{term}.json"):
+        return jsonpickle.decode(_load_cache(LOCAL_CACHE_DIR / f"{course}_{term}.json"))
 
-    weeks = _get_term_weeks(term)
     # [classtype][group_number] -> list of HourEntries for this group
     group_hours: dict[str, dict[str, list[HourEntry]]] = defaultdict(lambda: defaultdict(list))
+    # [classtype, group_num] -> lecturer_ids
+    group_to_lecturer_ids: dict[tuple[str, str], set[str]] = defaultdict(set)
 
-    for index, week in enumerate(weeks):
-        week_parity = FREQUENCY[index]
+    for week_start, week_parity in zip(_get_term_weeks(term), FREQUENCY):
         activities_response = requests.get(
             USOSAPI_BASE_URL + '/tt/course_edition',
             params={
                 'course_id': course,
                 'term_id': term,
-                'start': week,
+                'start': week_start,
                 'days': 7,
-                'fields': 'classtype_id|group_number|start_time|end_time'
+                'fields': 'classtype_id|group_number|start_time|end_time|lecturer_ids'
             },
-            timeout=DEFAULT_TIMEOUT
+            timeout=USOSAPI_TIMEOUT
         )
         activities_response.raise_for_status()
 
@@ -76,6 +84,17 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
             group_hours[activity['classtype_id']][activity['group_number']].append(
                 _init_hour_entry_from_json(activity, week_parity)
             )
+            # add all lecturers to the list, cast as str
+            group_to_lecturer_ids[(activity['classtype_id'], activity['group_number'])].update(
+                str(lecturer_id) for lecturer_id in activity['lecturer_ids']
+            )
+
+    # ids of all lecturers in the course
+    lecturer_ids = list({str(lecturer_id) for lecturer_ids in group_to_lecturer_ids.values()
+                    for lecturer_id in lecturer_ids})
+    # get all lecturers' names
+    lecturers = defaultdict(lambda: ('-', '-'))
+    lecturers.update(usos_tools.users.get_course_lecturers(course, term, lecturer_ids))
 
     groups: dict[str, list[GroupEntry]] = defaultdict(list)
     for classtype, groups_info in group_hours.items():
@@ -85,7 +104,11 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
                     group_nums={str(number)},
                     course=course,
                     classtype=classtype,
-                    hours=set(_merge_hour_entries_by_time(hours))
+                    hours=set(_merge_hour_entries_by_time(hours)),
+                    teacher=', '.join(
+                        f"{lecturers[lecturer_id][0]} {lecturers[lecturer_id][1]}"
+                        for lecturer_id in group_to_lecturer_ids[(classtype, number)]
+                    )
                 )
             )
         if merge_groups:
@@ -93,7 +116,7 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
 
     course_groups = {course: groups}
     # cache the result
-    _save_cache(LOCAL_CACHE_DIR, f"{course}_{term}.json", jsonpickle.encode(course_groups))
+    _save_cache(LOCAL_CACHE_DIR / f"{course}_{term}.json", jsonpickle.encode(course_groups))
     return course_groups
 
 @lru_cache

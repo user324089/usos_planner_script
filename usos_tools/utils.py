@@ -109,18 +109,19 @@ def _merge_groups_by_time(groups: list[GroupEntry]) -> list[GroupEntry]:
 
 CACHE_DIR = pathlib.Path(__file__).parent.parent / '.cache_usos_tools'
 
-def _is_file_cached(path: str) -> bool:
+def _is_file_cached(path: str | pathlib.Path) -> bool:
     """Checks if the file is cached."""
     return (CACHE_DIR / path).resolve().exists()
 
-def _load_cache(path: str) -> str:
+def _load_cache(path: str | pathlib.Path) -> str:
     """Loads a file from cache. The file must exist."""
-    with open(CACHE_DIR / path, 'r', encoding='utf-8') as file:
+    with open((CACHE_DIR / path).resolve(), 'r', encoding='utf-8') as file:
         return file.read()
 
-def _save_cache(path: str, filename: str, data: str):
+def _save_cache(path: str | pathlib.Path, data: str):
     """Saves data to cache. Creates the directory if it doesn't exist."""
-    full_path = CACHE_DIR / path
-    full_path.mkdir(parents=True, exist_ok=True)
-    with open(full_path / filename, 'w', encoding='utf-8') as file:
+    full_path = (CACHE_DIR / path).resolve()
+    # create the directories if they don't exist
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(full_path, 'w', encoding='utf-8') as file:
         file.write(data)
