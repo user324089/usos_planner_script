@@ -317,8 +317,13 @@ def delete_timetable (timetable_id: int, cookies):
         timeout=DEFAULT_TIMEOUT
     )
 
-def display_timetable(groups: list[GroupEntry], name: str):
-    """Shows the timetable as a plot."""
+def display_timetable(groups: list[GroupEntry], name: str) -> None:
+    """
+    Displays a timetable for given groups.
+    :param groups: timetable represented as a list of GroupEntry objects
+    :param name: name of the timetable
+    :return: displays a timetable plot
+    """
     fig, ax = plt.subplots()
 
     ax.set_xticks(range(len(WEEKDAYS_POLISH)))
@@ -331,26 +336,26 @@ def display_timetable(groups: list[GroupEntry], name: str):
     ax.grid(True, which='both', linestyle='--', linewidth=0.5)
 
     # assign a color to each course
-    course_to_color = {group.course: i for i, group in enumerate(groups)}
     colors = plt.get_cmap('tab20')(range(len(groups)))
+    course_to_color = {group.course: color for color, group in zip(colors, groups)}
 
     for group in groups:
         for hour in group.hours:
             start, end = hour.time_from, hour.time_to
-            day_index = WEEKDAYS_POLISH.index(hour.day)
 
             height = end - start
             width = 1 if hour.parity == ALL_DAYS else 0.5
-            x_middle = day_index
+            x_middle = WEEKDAYS_POLISH.index(hour.day) # day index
             if hour.parity == ODD_DAYS:
                 x_middle += width/2
             elif hour.parity == EVEN_DAYS:
                 x_middle -= width/2
+            y_middle = (start + end) / 2
 
             ax.bar(x_middle, height, bottom=start, width=width, edgecolor='black',
-                   color=colors[course_to_color[group.course]], align='center')
-            info = f'{group.course} {group.classtype} {", ".join(group.group_nums)}'
-            ax.text(x_middle, (start + end) / 2, info,
+                   color=course_to_color[group.course], align='center')
+            info = f'{group.course}\n{group.classtype} {", ".join(group.group_nums)}'
+            ax.text(x_middle, y_middle, info,
                     va='center', ha='center', fontsize=10, color='black')
 
     ax.set_xlabel('Days')
