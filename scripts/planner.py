@@ -170,14 +170,16 @@ def init_planner_unit_from_config(path: pathlib.Path,
     for course in courses:
         groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course], True))
 
-    return PlannerUnit(
+    unit = PlannerUnit(
         name = path.name,
         courses = courses,
         evaluator = evaluator,
         template_timetable_id = timetable_id,
         groups = groups,
-        config_path = path
+        config_path = path,
     )
+    unit.ranked_timetables = get_top_timetables(unit)
+    return unit
 
 
 def min_normalize (values: list[int]) -> list[float]:
@@ -305,7 +307,6 @@ def initialize(args) -> tuple[requests.cookies.RequestsCookieJar, list[PlannerUn
             dydactic_cycle,
             php_session_cookies
         )
-        current_unit.ranked_timetables = get_top_timetables(current_unit)
         print(current_unit)
         all_planner_units.append(current_unit)
 
