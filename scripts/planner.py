@@ -6,6 +6,7 @@ import random
 import pathlib
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
+import jsonpickle
 import requests.cookies
 
 import usos_tools.login
@@ -278,6 +279,113 @@ def get_shared_courses (planner_units: list[PlannerUnit]) -> list[str]:
     )
     return [course for course, count in course_counter.items() if count > 1]
 
+def timetable_has_group(timetable: list[tt.GroupEntry], group: tt.GroupEntry) -> bool:
+    """Returns True if the timetable contains the group."""
+    return any(entry == group for entry in timetable)
+
+def _add_group_constraint(
+        timetable_ids: list[int],
+        planner_unit: PlannerUnit,
+        group: tt.GroupEntry
+) -> list[int]:
+    """
+    Returns a list of timetable ids that contain the group.
+    :param timetable_ids: list of timetable ids in planner_unit.ranked_timetables
+    :param planner_unit: planner unit that contains the timetables
+    :param group: group that has to be in the timetable
+    :return: list of timetable ids that contain the group
+    """
+    return [
+        timetable_id for timetable_id in timetable_ids
+        if timetable_has_group(tuple(planner_unit.ranked_timetables[timetable_id][0]), group)
+    ]
+
+def strategy_dfs(
+        n: int,
+        edges: list[tuple[int, int, str, str]],
+        timetables: dict[int, list[int]],
+        planner_units: list[PlannerUnit]
+):
+    """
+    Returns a strategy tree for the given group graph.
+    :param n: number of the best timetables to keep for each planner unit
+    :param edges: list of edges that represent shared groups between people
+    :param timetables: dictionary of planner unit id -> list of timetable ids
+    (from planner_unit.ranked_timetables)
+    :param planner_units: list of planner units
+    :return: Strategy DFS tree in the form of a dictionary where each key is an added edge
+    defined as (unit1, unit2, group) and the value is a tuple of the best timetables and
+    the strategy tree for every possible next edge
+    """
+    children = {}
+    # add an edge - a group that is shared between two people
+    for edge_id, (unit1, unit2, course, course_unit) in enumerate(edges):
+        for group in planner_units[unit1].groups[course][course_unit]:
+            # keep the timetables that match the added group edge
+            best_timetables: dict[int, list[int]] = {}
+            remaining_timetables = timetables.copy()
+            branch_end = False
+            for unit in (unit1, unit2):
+                remaining_timetables[unit] = _add_group_constraint(
+                    timetables[unit], planner_units[unit], group
+                )
+                best_timetables[unit] = remaining_timetables[unit][:n]
+                # if there are no timetables left, stop the search
+                if not best_timetables[unit]:
+                    branch_end = True
+                    break
+
+            if branch_end:
+                break
+
+            children[(unit1, unit2, group)] = (
+                best_timetables,
+                strategy_dfs(n, edges[edge_id+1:], remaining_timetables, planner_units)
+            )
+    return children
+
+def get_all_strategies(planner_units: list[PlannerUnit],
+                       edges: list[tuple[int, int, str, str]],
+                       print_num_elems: bool = False) -> None:
+    """
+    Return all strategies for the given shared group graph, where planner units are vertices
+    and groups are edges. Every edge is described by course and course unit.
+    A strategy is an order in which the shared groups should be added to the timetables.
+    No edge does not represent anything. Resulting tree is saved to a json file.
+    :param planner_units: list of planner units
+    :param edges: the full graph, where an edge represents shared groups between planner units
+    in format (1st planner unit id, 2nd planner unit id, course, course_unit),
+    where planner unit id is an index in the planner_units list.
+    :param print_num_elems: If True, print the number of elements in the resulting strategy tree
+    :return: None
+    """
+
+    # keep only those edges whose course unit has more than one group
+    # (otherwise the course unit will always be shared)
+    used_edges = list({(min(unit1, unit2), max(unit1, unit2), course, course_unit)
+                    for unit1, unit2, course, course_unit in edges
+                         if unit1 != unit2
+                         and len(planner_units[unit1].groups[course][course_unit]) > 1})
+
+    all_timetables = {planner_id: list(range(len(planner_unit.ranked_timetables)))
+                      for planner_id, planner_unit in enumerate(planner_units)}
+
+    strategy_tree = strategy_dfs(1, used_edges, all_timetables, planner_units)
+    # save the tree to a json
+    print("Saving strategy tree to strategy_tree.json")
+    with open('strategy_tree.json', 'w', encoding='utf-8') as file:
+        file.write(jsonpickle.encode(strategy_tree))
+
+
+    # get number of all elements (recursively) in the strategy tree
+    if print_num_elems:
+        def _get_num_elements(tree):
+            if not isinstance(tree, dict):
+                return 1
+            return 1 + sum(_get_num_elements(subtree) for _, subtree in tree.values())
+        print("Number of elements in strategy tree:", _get_num_elements(strategy_tree))
+
+
 def initialize(args) -> tuple[requests.cookies.RequestsCookieJar, list[PlannerUnit]]:
     """
     Initializes the planner.
@@ -317,45 +425,17 @@ def main(args) -> int:
     """Calculates the best possible timetables according to config and creates them in USOS."""
     php_session_cookies, all_planner_units = initialize(args)
 
-    # get all courses that are attended by more than one person
-    shared_courses = get_shared_courses(all_planner_units)
+    # create a graph with all edges
+    # iterate over all distinct pairs of planner units
+    edges: list[tuple[int, int, str, str]] = []
+    for i, planner_unit1 in enumerate(all_planner_units):
+        for j, planner_unit2 in enumerate(all_planner_units):
+            if i >= j:
+                continue
+            shared_courses = planner_unit1.courses & planner_unit2.courses
+            for course in shared_courses:
+                for course_unit in planner_unit1.groups[course]:
+                    edges.append((i, j, course, course_unit))
 
-    # find all possible timetables with duplicate courses. this approach does not scale,
-    # but for at most 3 people it is enough
-    shared_groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
-    for shared_course in shared_courses:
-        shared_groups.update(
-            usos_tools.courses.get_course_groups(
-                shared_course, COURSE_TERMS[shared_course], True
-            )
-        )
-    shared_groups_timetables = list_possible_timetables (shared_groups)
-
-    # list of timetables that fit a certain shared timetable for all people
-    best_matching_timetables: list[list[int]] = []
-    # best attained combined score (we attempt to minimize it)
-    best_group_score: float = math.inf
-
-    for shared_timetable in shared_groups_timetables:
-        best_timetables_per_person, group_score = get_best_fitting_timetables_group(
-            all_planner_units,
-            shared_timetable,
-            NUM_TIMETABLES
-        )
-        # update if set of timetables is better
-        if group_score < best_group_score:
-            best_group_score = group_score
-            best_matching_timetables = best_timetables_per_person
-
-    if len(best_matching_timetables) == 0:
-        print ('Failed to find a timetable system')
-        return 1
-
-
-    for index, current_unit in enumerate(all_planner_units):
-        top_timetables = [current_unit.ranked_timetables[i]
-                          for i in best_matching_timetables[index][:NUM_TIMETABLES]]
-        for timetable, _ in top_timetables:
-            usos_tools.timetables.display_timetable(timetable, f"Timetable {current_unit.name}")
-
+    get_all_strategies(all_planner_units, edges, print_num_elems=True)
     return 0
