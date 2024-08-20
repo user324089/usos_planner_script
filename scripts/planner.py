@@ -283,6 +283,20 @@ def timetable_has_group(timetable: list[tt.GroupEntry], group: tt.GroupEntry) ->
     """Returns True if the timetable contains the group."""
     return any(entry == group for entry in timetable)
 
+def find_group_in_timetable(timetable: list[tt.GroupEntry], course: str, course_unit: str) \
+                                                                            -> tt.GroupEntry:
+    """
+    Returns the group with the given course and course unit from the timetable.
+    :param timetable: list of groups in the timetable
+    :param course: course code
+    :param course_unit: course unit id
+    :return: group with the given course and course unit
+    """
+    for group in timetable:
+        if group.course == course and group.classtype == course_unit:
+            return group
+    raise RuntimeError('Group not found in the timetable')
+
 def _add_group_constraint(
         timetable_ids: list[int],
         planner_unit: PlannerUnit,
@@ -320,23 +334,26 @@ def strategy_dfs(
     children = {}
     # add an edge - a group that is shared between two people
     for edge_id, (unit1, unit2, course, course_unit) in enumerate(edges):
-        for group in planner_units[unit1].groups[course][course_unit]:
-            # keep the timetables that match the added group edge
-            best_timetables: dict[int, list[int]] = {}
-            remaining_timetables = timetables.copy()
-            branch_end = False
-            for unit in (unit1, unit2):
-                remaining_timetables[unit] = _add_group_constraint(
-                    timetables[unit], planner_units[unit], group
+        # divide the units' timetables by groups
+        timetables_by_groups: dict[int, dict[tt.GroupEntry, list[int]]] = {}
+        for unit in (unit1, unit2):
+            timetables_by_groups[unit] = defaultdict(list)
+            for timetable_id in timetables[unit]:
+                group = find_group_in_timetable(
+                    planner_units[unit].ranked_timetables[timetable_id][0], course, course_unit
                 )
-                best_timetables[unit] = remaining_timetables[unit][:n]
-                # if there are no timetables left, stop the search
-                if not best_timetables[unit]:
-                    branch_end = True
-                    break
+                timetables_by_groups[unit][group].append(timetable_id)
 
-            if branch_end:
+        for group in planner_units[unit1].groups[course][course_unit]:
+            # if there are no timetables left, stop the search
+            if not (timetables_by_groups[unit1][group] and timetables_by_groups[unit2][group]):
                 break
+            # keep the timetables that match the added group edge
+            remaining_timetables = timetables.copy()
+            best_timetables: dict[int, list[int]] = {}
+            for unit in (unit1, unit2):
+                remaining_timetables[unit] = timetables_by_groups[unit][group]
+                best_timetables[unit] = remaining_timetables[unit][:n]
 
             children[(unit1, unit2, group)] = (
                 best_timetables,
