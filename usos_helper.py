@@ -22,7 +22,6 @@ def add_deleter_options (deleter_parser):
     add_pattern_option (deleter_parser)
 
 def add_downloader_options (downloader_parser) -> None:
-    add_credentials_option (downloader_parser)
     add_cycle_option (downloader_parser)
 
 def add_search_options (_) -> None:
