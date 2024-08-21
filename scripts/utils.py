@@ -23,8 +23,8 @@ def get_pattern (args) -> str:
     return input ()
 
 def get_cycle (args) -> str:
-    if args.c:
-        return args.c
+    if args.cycle:
+        return args.cycle
     return input('cycle:')
 def read_words_from_file (filename: str) -> list[str]:
     """Returns a list of all words in the file."""
