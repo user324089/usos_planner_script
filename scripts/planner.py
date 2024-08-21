@@ -169,7 +169,7 @@ def init_planner_unit_from_config(path: pathlib.Path,
 
     groups: dict[str, dict[str, list[tt.GroupEntry]]] = {}
     for course in courses:
-        groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course], True))
+        groups.update(usos_tools.courses.get_course_groups(course, COURSE_TERMS[course], False))
 
     unit = PlannerUnit(
         name = path.name,
@@ -315,14 +315,14 @@ def _add_group_constraint(
     ]
 
 def strategy_dfs(
-        n: int,
+        n: int | None,
         edges: list[tuple[int, int, str, str]],
         timetables: dict[int, list[int]],
         planner_units: list[PlannerUnit]
 ):
     """
     Returns a strategy tree for the given group graph.
-    :param n: number of the best timetables to keep for each planner unit
+    :param n: number of the best timetables to keep for each planner unit (None keeps all)
     :param edges: list of edges that represent shared groups between people
     :param timetables: dictionary of planner unit id -> list of timetable ids
     (from planner_unit.ranked_timetables)
@@ -353,7 +353,10 @@ def strategy_dfs(
             best_timetables: dict[int, list[int]] = {}
             for unit in (unit1, unit2):
                 remaining_timetables[unit] = timetables_by_groups[unit][group]
-                best_timetables[unit] = remaining_timetables[unit][:n]
+                if n:
+                    best_timetables[unit] = remaining_timetables[unit][:n]
+                else:
+                    best_timetables[unit] = remaining_timetables[unit]
 
             children[(unit1, unit2, group)] = (
                 best_timetables,
@@ -361,10 +364,13 @@ def strategy_dfs(
             )
     return children
 
-def get_all_strategies(planner_units: list[PlannerUnit],
-                       edges: list[tuple[int, int, str, str]],
-                       print_num_elems: bool = False) -> None:
+def get_all_strategies(
+        n: int | None,
+        planner_units: list[PlannerUnit],
+        edges: list[tuple[int, int, str, str]],
+        print_num_elems: bool = False) -> None:
     """
+    :param n: number of the best timetables to keep for each planner unit (None
     Return all strategies for the given shared group graph, where planner units are vertices
     and groups are edges. Every edge is described by course and course unit.
     A strategy is an order in which the shared groups should be added to the timetables.
@@ -387,7 +393,7 @@ def get_all_strategies(planner_units: list[PlannerUnit],
     all_timetables = {planner_id: list(range(len(planner_unit.ranked_timetables)))
                       for planner_id, planner_unit in enumerate(planner_units)}
 
-    strategy_tree = strategy_dfs(1, used_edges, all_timetables, planner_units)
+    strategy_tree = strategy_dfs(n, used_edges, all_timetables, planner_units)
     # save the tree to a json
     print("Saving strategy tree to strategy_tree.json")
     with open('strategy_tree.json', 'w', encoding='utf-8') as file:
@@ -454,5 +460,5 @@ def main(args) -> int:
                 for course_unit in planner_unit1.groups[course]:
                     edges.append((i, j, course, course_unit))
 
-    get_all_strategies(all_planner_units, edges, print_num_elems=True)
+    get_all_strategies(NUM_TIMETABLES, all_planner_units, edges, print_num_elems=True)
     return 0
