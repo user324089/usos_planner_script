@@ -48,8 +48,21 @@ def _init_hour_entry_from_json(activity, week_parity: int) -> HourEntry:
         time_to=_transform_time(end_date.hour, end_date.minute)
     )
 
+def _merge_course_groups_by_time(course_groups: dict[str, dict[str, list[GroupEntry]]]) \
+        -> dict[str, dict[str, list[GroupEntry]]]:
+    """
+    Helper function for get_course_groups.
+    Merges groups with the same hours and the same classtype.
+    :param course_groups: dict of the form [course][classtype] -> list of GroupEntries
+    :return: same dict, but with merged groups
+    """
+    for _, course_units in course_groups.items():
+        for classtype, groups in course_units.items():
+            course_units[classtype] = _merge_groups_by_time(groups)
+    return course_groups
+
 def get_course_groups(course: str, term: str, merge_groups: bool) \
-                                                -> dict[str, dict[str, list[GroupEntry]]]:
+        -> dict[str, dict[str, list[GroupEntry]]]:
     """
     Fetches all groups for the course in the given term.
     :param course: course id
@@ -58,7 +71,10 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
     :return: dict of the form [course][classtype] -> list of GroupEntries
     """
     if _is_file_cached(LOCAL_CACHE_DIR / f"{course}_{term}.json"):
-        return jsonpickle.decode(_load_cache(LOCAL_CACHE_DIR / f"{course}_{term}.json"))
+        course_groups = jsonpickle.decode(_load_cache(LOCAL_CACHE_DIR / f"{course}_{term}.json"))
+        if merge_groups:
+            course_groups = _merge_course_groups_by_time(course_groups)
+        return course_groups
 
     # [classtype][group_number] -> list of HourEntries for this group
     group_hours: dict[str, dict[str, list[HourEntry]]] = defaultdict(lambda: defaultdict(list))
@@ -112,12 +128,13 @@ def get_course_groups(course: str, term: str, merge_groups: bool) \
                     )
                 )
             )
-        if merge_groups:
-            groups[classtype] = _merge_groups_by_time(groups[classtype])
 
     course_groups = {course: groups}
     # cache the result
     _save_cache(LOCAL_CACHE_DIR / f"{course}_{term}.json", jsonpickle.encode(course_groups))
+
+    if merge_groups:
+        course_groups = _merge_course_groups_by_time(course_groups)
     return course_groups
 
 @lru_cache

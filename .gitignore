@@ -5,3 +5,4 @@ codes
 subjects.json
 */__pycache__
 login_data
+.cache_usos_tools
