@@ -1,6 +1,6 @@
 import argparse
 import sys
-import scripts.planner
+import scripts.planner.planner
 import scripts.deleter
 import scripts.downloader
 import scripts.course_search
@@ -58,7 +58,7 @@ def main () -> int:
         case 'search':
             scripts.course_search.main(args)
         case 'plan':
-            scripts.planner.main(args)
+            scripts.planner.planner.main(args)
         case 'cart':
             scripts.cart_course_codes_getter.main(args)
 
