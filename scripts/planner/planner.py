@@ -3,15 +3,17 @@ using a given evaluator function, then creates them in USOS."""
 import random
 import pathlib
 from collections import Counter
+import jsonpickle
 import requests.cookies
 import usos_tools.login
 import usos_tools.cart
 import usos_tools.courses
+import usos_tools.timetables as tt
 from scripts.utils import get_login_credentials
 
 from .utils import read_dydactic_cycle
 from .plannerunit_init import init_planner_unit_from_config
-from .strategies import get_all_strategies
+from .strategies import get_all_strategies, get_top_strategies
 from .plannerunit import PlannerUnit
 
 USOSAPI_TIMEOUT = 5
@@ -66,17 +68,55 @@ def main(args) -> int:
     """Calculates the best possible timetables according to config and creates them in USOS."""
     php_session_cookies, all_planner_units = initialize(args)
 
-    # create a graph with all edges
-    # iterate over all distinct pairs of planner units
-    edges: list[tuple[int, int, str, str]] = []
-    for i, planner_unit1 in enumerate(all_planner_units):
-        for j, planner_unit2 in enumerate(all_planner_units):
-            if i >= j:
-                continue
-            shared_courses = planner_unit1.courses & planner_unit2.courses
-            for course in shared_courses:
-                for course_unit in planner_unit1.groups[course]:
-                    edges.append((i, j, course, course_unit))
+    # NOTE: create a graph only when needed (updating tree in cache)
 
-    get_all_strategies(NUM_TIMETABLES, all_planner_units, edges, print_num_elems=True)
+    # # create a graph with all edges
+    # # iterate over all distinct pairs of planner units
+    # edges: list[tuple[int, int, str, str]] = []
+    # for i, planner_unit1 in enumerate(all_planner_units):
+    #     for j, planner_unit2 in enumerate(all_planner_units):
+    #         if i >= j:
+    #             continue
+    #         shared_courses = planner_unit1.courses & planner_unit2.courses
+    #         for course in shared_courses:
+    #             for course_unit in planner_unit1.groups[course]:
+    #                 edges.append((i, j, course, course_unit))
+    #
+    #
+    # strategy_tree = (
+    #     get_all_strategies(
+    #         None,
+    #         all_planner_units,
+    #         edges,
+    #         print_num_elems=True
+    #     )
+    # )
+
+    with open('strategy_tree.json', 'r', encoding='utf-8') as file:
+        strategy_tree = jsonpickle.decode(file.read(), keys=True)
+
+    # find the best strategy
+    best_strategies = get_top_strategies(
+        1,
+        'power',
+        {'n': 10.},
+        strategy_tree,
+        all_planner_units
+    )
+
+    num_to_print = 1
+    # display first num_to_print timetables in strategy for every person
+    for score, strategies in best_strategies.items():
+        print(f"Score: {score}")
+        for strategy in strategies:
+            for unit_id, timetable_ids in strategy.items():
+                for index, timetable_id in enumerate(timetable_ids[:num_to_print]):
+                    tt_groups, _ = (
+                        all_planner_units[unit_id].ranked_timetables[timetable_id])
+                    tt.display_timetable(
+                        tt_groups,
+                        f"Timetable {index + 1} (id {timetable_id}) "
+                        f"for {all_planner_units[unit_id].name}"
+                    )
+
     return 0
